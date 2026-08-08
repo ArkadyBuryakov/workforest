@@ -1,0 +1,19 @@
+pkgbase = workforest
+	pkgdesc = Git worktree forest management: per-branch worktrees with project-defined setup hooks
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/arkadyb/workforest
+	arch = any
+	license = MIT
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-hatchling
+	depends = python
+	depends = python-yaml
+	depends = git
+	optdepends = fzf: interactive TUI (workforest tui)
+	source = workforest-0.1.0.tar.gz::https://github.com/arkadyb/workforest/archive/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = workforest

@@ -1,0 +1,76 @@
+# Workforest — project configuration example
+#
+# Locations (all resolved against the MAIN worktree; basename order
+# .workforest.yaml → .workforest.yml → .workforest.json):
+#
+#   shared layer:  repo root — commit this file; it is repo policy, and every
+#                  worktree of the repo sees the same settings.
+#   local layer:   .vscode/ or .idea/ (.vscode/ checked first) — a
+#                  per-developer override merged ON TOP of the shared file,
+#                  overriding only the keys it sets. IDE settings folders are
+#                  already covered by typical ignore setups, so no .gitignore
+#                  changes are needed. Scaffold with `workforest init --local`.
+#
+# These layers override system and user config; only env vars and CLI flags
+# rank higher. Keep ENVIRONMENT concerns (window_command, openers, default
+# opener) out of the shared file — teammates have different terminals and
+# editors; shared config is for REPO concerns.
+#
+# Every key is optional; `workforest init` scaffolds this file.
+
+# ---------------------------------------------------------------------------
+# Symlinks — repo-root-relative paths linked from the main worktree into each
+# new worktree, so expensive or private untracked assets are shared instead
+# of rebuilt. Created links are hidden from `git status` in that worktree
+# only (per-worktree excludes). Missing sources are skipped with a warning;
+# existing non-symlink destinations are never clobbered.
+#
+# Default: []
+# ---------------------------------------------------------------------------
+symlinks:
+  - node_modules
+  - .env
+  - .venv
+  - .vscode/settings.json
+
+# ---------------------------------------------------------------------------
+# Setup scripts — run in order inside a freshly created worktree ($SHELL -c,
+# cwd = new worktree root). A failing script warns but does not abort the
+# remaining scripts or the creation. Skipped entirely with `create --no-hooks`.
+#
+# Environment available (here, and in `scripts` below):
+#   WF_MAIN            main worktree path
+#   WF_NAME            repo name (main checkout directory name)
+#   WF_WORKTREE        the new/current worktree path
+#   WF_WORKTREES_DIR   resolved worktrees directory
+#   WF_BRANCH          branch of the new/current worktree
+#
+# Default: []
+# ---------------------------------------------------------------------------
+setup_scripts:
+  - cp "$WF_MAIN/.env.local" .env.local 2>/dev/null || true
+  - npm install --prefer-offline
+  - npm run db:migrate
+
+# ---------------------------------------------------------------------------
+# Named scripts — invoked with `workforest run NAME` from any worktree of
+# this repo. Merged per key with user/system `scripts`; this file wins on
+# conflicting names, and `NAME: null` removes a name inherited from a lower
+# layer.
+#
+# Default: {}
+# ---------------------------------------------------------------------------
+scripts:
+  test: "npm test"
+  migrate: "npm run db:migrate"
+  reset-db: "dropdb app_dev --if-exists && createdb app_dev && npm run db:migrate"
+  # sync: null        # example: hide a `sync` script defined in user config
+
+# ---------------------------------------------------------------------------
+# Worktree layout override — where this repo's worktrees live. A path
+# template expanded with $WF_MAIN / $WF_NAME and environment variables.
+#
+# Default: "$WF_MAIN/../worktrees/$WF_NAME" (usually inherited; override only
+# when this repo needs a special layout).
+# ---------------------------------------------------------------------------
+# worktrees_dir: "$WF_MAIN/../$WF_NAME.worktrees"

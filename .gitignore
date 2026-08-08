@@ -1,1 +1,21 @@
-.reference
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Packaging artifacts
+*.pkg.tar.zst
+pkg/
+
+# Tooling config
+.workforest.yaml

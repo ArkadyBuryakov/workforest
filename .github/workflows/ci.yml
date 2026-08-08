@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install system dependencies
+        run: pacman -Syu --noconfirm git python uv make zsh
+
+      - uses: actions/checkout@v4
+
+      - name: Sync dev environment
+        run: uv sync
+
+      - name: Lint, type-check, test
+        run: make check
+
+  package-smoke:
+    # Builds the wheel the AUR package would build and installs it into a
+    # clean venv — catches missing package data and broken entry points.
+    # The full `makepkg -si` + namcap check runs in the release workflow,
+    # where a source tarball exists.
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install system dependencies
+        run: pacman -Syu --noconfirm git python python-build python-installer python-wheel python-hatchling
+
+      - uses: actions/checkout@v4
+
+      - name: Build wheel (no isolation, like the PKGBUILD)
+        run: python -m build --wheel --no-isolation
+
+      - name: Install into a clean venv and smoke test
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          /tmp/venv/bin/workforest --version
+          /tmp/venv/bin/wf --version
+          /tmp/venv/bin/workforest shell-init bash | bash -n
+          /tmp/venv/bin/workforest shell-init zsh | head -1 | grep -q Workforest

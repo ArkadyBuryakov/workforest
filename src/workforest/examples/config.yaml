@@ -1,0 +1,117 @@
+# Workforest — global configuration example
+#
+# Locations (first existing basename wins: config.yaml → config.yml → config.json):
+#   system layer:  /etc/workforest/config.yaml
+#   user layer:    $XDG_CONFIG_HOME/workforest/config.yaml   (~/.config/workforest/config.yaml)
+#
+# Layer precedence (low → high):
+#   built-in defaults → system → user → project shared (repo root)
+#   → project local (.vscode/ or .idea/) → env vars → CLI flags
+#
+# Merge semantics:
+#   scalars and lists REPLACE the lower layer;
+#   mappings (`openers`, `scripts`) MERGE per key, a key set to `null` removes
+#   the inherited entry.
+#
+# Every key is optional. The values shown at the top of each section are the
+# built-in defaults — a missing key and an explicitly-default key behave the
+# same. The global layers are the natural home for ENVIRONMENT concerns
+# (terminal, editor, personal helper scripts); repo concerns belong in the
+# project config (see examples/.workforest.yaml).
+
+# ---------------------------------------------------------------------------
+# Where managed worktrees live — a path template expanded with the WF_*
+# variables (the same family your scripts receive) plus ordinary environment
+# variables, then path-normalized:
+#   $WF_MAIN   absolute path of the main worktree
+#   $WF_NAME   repo name (the main checkout's directory name)
+#
+# Default: a `worktrees/` folder next to the main checkout, namespaced per
+# repo, so ~/src/api → ~/src/worktrees/api/<branch-short-name>.
+# ---------------------------------------------------------------------------
+worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"
+
+# Alternatives:
+# worktrees_dir: "$HOME/worktrees/$WF_NAME"     # all forests in one place
+# worktrees_dir: "$WF_MAIN/../worktrees"        # bash-MVP flat layout
+
+# ---------------------------------------------------------------------------
+# Default opener — what runs when you `wf create`/`wf open` without -o.
+#
+# Value is either a name from the `openers` mapping below, or a command
+# template used verbatim.
+#
+# Default: "" — falls back to $VISUAL, then $EDITOR, then errors out asking
+# you to set one. Workforest never assumes a specific editor.
+# ---------------------------------------------------------------------------
+opener: ""
+
+# opener: edit          # a name defined in `openers`
+# opener: "$EDITOR {path}"   # or an inline template
+
+# ---------------------------------------------------------------------------
+# Named openers — command templates for -o NAME, the shortcut form
+# (`wf NAME <worktree>`), and the TUI opener carousel.
+#
+# Template rules:
+#   * environment variables are expanded ($EDITOR, $SHELL, …)
+#   * {path} is replaced with the shell-quoted target path
+#   * a template WITHOUT {path} simply runs with the target directory as its
+#     working directory
+#
+# Default: {} — the TUI then falls back to two derived entries:
+# the default opener and $SHELL.
+# ---------------------------------------------------------------------------
+openers: {}
+
+# openers:
+#   edit: "$EDITOR {path}"       # editors usually want the path argument
+#   shell: "$SHELL"              # just a shell in the worktree
+#   git: "lazygit"               # runs with cwd = worktree, no argument
+#   ide: "xdg-open {path}"       # hand off to the desktop default handler
+#   agent: "claude"
+
+# ---------------------------------------------------------------------------
+# Window command — WHERE the opener runs.
+#
+# Default: "" — the opener runs in your current shell via the `wf` wrapper
+# (`cd <worktree> && <opener>`).
+#
+# Set a template to spawn a new terminal window / multiplexer pane instead.
+# Placeholders: {title}    "repo: worktree", shell-quoted
+#               {path}     target directory
+#               {command}  the resolved opener command
+# The process is spawned fully detached.
+#
+# This key is the environment-specific bit par excellence — it belongs in
+# your USER config, never in a project config.
+# ---------------------------------------------------------------------------
+window_command: ""
+
+# window_command: "kitty --title {title} --directory {path} {command}"
+# window_command: "foot --title={title} --working-directory={path} {command}"
+# window_command: "alacritty --title {title} --working-directory {path} -e {command}"
+# window_command: "tmux new-window -c {path} -n {title} {command}"
+
+# ---------------------------------------------------------------------------
+# Personal named scripts — available via `workforest run NAME` in every repo.
+# Merged per key with project `scripts` (project wins on conflict).
+#
+# Scripts run from the current worktree root via $SHELL -c with:
+#   WF_MAIN, WF_WORKTREE, WF_WORKTREES_DIR, WF_BRANCH
+#
+# Default: {}
+# ---------------------------------------------------------------------------
+scripts: {}
+
+# scripts:
+#   sync: "git fetch --all --prune && git status -sb"
+#   diff-main: "git diff $(git -C \"$WF_MAIN\" branch --show-current)..."
+
+# ---------------------------------------------------------------------------
+# `symlinks` and `setup_scripts` are valid here too (any key is valid at any
+# layer), but they are repo concerns — you almost always want them in the
+# project config instead. Defaults: [] and [].
+# ---------------------------------------------------------------------------
+# symlinks: []
+# setup_scripts: []
