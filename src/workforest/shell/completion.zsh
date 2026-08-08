@@ -25,4 +25,14 @@ _workforest_complete() {
 
 if (( ${+functions[compdef]} )); then
     compdef _workforest_complete workforest wf
+else
+    # compinit has not run yet (shell-init was eval'ed before it in the rc).
+    # Defer registration to just before the first prompt, when compinit is
+    # done; the hook removes itself after one shot.
+    _workforest_register_completion() {
+        add-zsh-hook -d precmd _workforest_register_completion
+        (( ${+functions[compdef]} )) && compdef _workforest_complete workforest wf
+    }
+    autoload -Uz add-zsh-hook
+    add-zsh-hook precmd _workforest_register_completion
 fi

@@ -145,6 +145,25 @@ class TestEnvOverrides:
         assert cfg.opener == "from-env"
         assert cfg.window_command == "spawn {command}"
 
+    def test_empty_env_disables_configured_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Set-but-empty forces current-shell mode / default opener chain."""
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text(
+            "opener: fancy\nwindow_command: 'kitty {command}'\n"
+        )
+        monkeypatch.setenv("WORKFOREST_OPENER", "")
+        monkeypatch.setenv("WORKFOREST_WINDOW_COMMAND", "")
+        cfg = load_config(project)
+        assert cfg.opener == ""
+        assert cfg.window_command == ""
+
+    def test_unset_env_leaves_config_alone(self, tmp_path: Path) -> None:
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text("window_command: 'kitty {command}'\n")
+        assert load_config(project).window_command == "kitty {command}"
+
 
 class TestValidation:
     def test_unknown_key(self, tmp_path: Path) -> None:

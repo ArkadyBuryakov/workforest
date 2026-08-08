@@ -155,9 +155,13 @@ def load_config(main_worktree: Path | None = None) -> Config:
         merged = _merge(merged, data)
         sources.append((layer, path))
 
-    if opener := os.environ.get("WORKFOREST_OPENER"):
+    # Set-but-empty is meaningful: WORKFOREST_WINDOW_COMMAND="" forces the
+    # current-shell mode in sessions where the configured window_command
+    # doesn't apply (ssh, plain tty); likewise an empty WORKFOREST_OPENER
+    # resets to the $VISUAL/$EDITOR chain.
+    if (opener := os.environ.get("WORKFOREST_OPENER")) is not None:
         merged["opener"] = opener
-    if window := os.environ.get("WORKFOREST_WINDOW_COMMAND"):
+    if (window := os.environ.get("WORKFOREST_WINDOW_COMMAND")) is not None:
         merged["window_command"] = window
 
     return Config(**merged, sources=sources)

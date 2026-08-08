@@ -113,7 +113,10 @@ installed to `/usr/share/doc/workforest/examples/` by the Arch package.
 | `WF_WORKTREES_DIR` | resolved worktrees directory |
 | `WF_BRANCH` | branch of the current/new worktree |
 
-The same `$WF_*` variables work inside `worktrees_dir`.
+`worktrees_dir` is a template using the same naming pattern: `$WF_MAIN` and
+`$WF_NAME` (plus regular environment variables like `$HOME`) expand there —
+the per-worktree variables don't, since no worktree exists yet when the base
+directory is resolved.
 
 ### Example project config
 
@@ -146,17 +149,6 @@ Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config erro
 Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the `wf` wrapper, `--porcelain` listings, dumps).
 
-## Migrating from the bash MVP
-
-- `.vscode/worktrees.json` → `.workforest.yaml` (same keys: `symlinks`,
-  `setup_scripts`, `scripts`).
-- Script env vars renamed: `ROOT_TREE_PATH` → `WF_MAIN`, `WORK_TREE_PATH` →
-  `WF_WORKTREE`, `WORKTREES_DIR` → `WF_WORKTREES_DIR` (no aliases).
-- The default layout gained a per-repo level: set
-  `worktrees_dir: "$WF_MAIN/../worktrees"` to keep an existing flat forest.
-- Kitty windows are one line of user config now:
-  `window_command: "kitty --title {title} --directory {path} {command}"`.
-
 ## Development
 
 ```sh
@@ -166,7 +158,7 @@ make install      # install this checkout as a uv tool (~/.local/bin/workforest)
 make uninstall    # remove it again
 ```
 
-Design docs live in `.design_docs/`. Packaging recipes live under
+Packaging recipes live under
 `packaging/` (one directory per package manager; currently `packaging/AUR/`).
 Release: bump `__version__`, tag, update `sha256sums` in
 `packaging/AUR/PKGBUILD`, regenerate `.SRCINFO`

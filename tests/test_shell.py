@@ -61,6 +61,28 @@ class TestShellInit:
             # compadd errors are acceptable, syntax errors are not
             assert b"parse error" not in check.stderr
 
+    @pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+    @pytest.mark.parametrize("init_first", [True, False])
+    def test_zsh_registration_survives_compinit_ordering(
+        self, init_first: bool, repo: Repo
+    ) -> None:
+        """Regression: eval'ing shell-init before compinit must still register
+        completions (deferred via a one-shot precmd hook)."""
+        init = 'eval "$(workforest shell-init zsh)"'
+        compinit = "autoload -Uz compinit && compinit -u"
+        script = "\n".join(
+            [
+                *((init, compinit) if init_first else (compinit, init)),
+                "for f in $precmd_functions; do $f; done",  # simulate first prompt
+                'print -r -- "${_comps[wf]:-NOTHING}:${_comps[workforest]:-NOTHING}"',
+                'print -r -- "hooks:${#precmd_functions}"',
+            ]
+        )
+        result = run_shell("zsh", script, cwd=repo.path)
+        assert result.returncode == 0, result.stderr
+        assert "_workforest_complete:_workforest_complete" in result.stdout
+        assert "hooks:0" in result.stdout  # the one-shot hook removed itself
+
     def test_detects_shell_from_env(self, run_cli: Run, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SHELL", "/usr/bin/zsh")
         result = run_cli("shell-init")

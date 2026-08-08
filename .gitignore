@@ -1,6 +1,3 @@
-.reference
-.design_docs
-
 # Python
 __pycache__/
 *.pyc
