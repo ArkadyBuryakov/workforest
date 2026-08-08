@@ -33,14 +33,17 @@ yay -S workforest        # AUR
 uv tool install workforest   # or: pipx install workforest
 ```
 
-Then add one line to your `~/.bashrc` / `~/.zshrc`:
+This installs two commands: `workforest` and its alias `wf`. Then add one
+line to your `~/.bashrc` / `~/.zshrc`:
 
 ```sh
 eval "$(workforest shell-init)"
 ```
 
-This defines the `wf` function (needed so `wf open` can change your shell's
-directory) and registers completions.
+This upgrades `wf` to a shell function (needed so `wf open` can change your
+shell's directory — a plain binary cannot) and registers completions. Without
+it everything still works, but "open in current shell" prints the `cd`
+command instead of performing it.
 
 Requirements: Linux, git ≥ 2.36, Python ≥ 3.14. Optional: `fzf` for the TUI.
 

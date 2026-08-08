@@ -42,5 +42,6 @@ jobs:
           python -m venv /tmp/venv
           /tmp/venv/bin/pip install dist/*.whl
           /tmp/venv/bin/workforest --version
+          /tmp/venv/bin/wf --version
           /tmp/venv/bin/workforest shell-init bash | bash -n
           /tmp/venv/bin/workforest shell-init zsh | head -1 | grep -q Workforest

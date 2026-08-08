@@ -27,6 +27,7 @@ Homepage = "https://github.com/arkadyb/workforest"
 
 [project.scripts]
 workforest = "workforest.cli:main"
+wf = "workforest.cli:main"
 
 [dependency-groups]
 dev = [
