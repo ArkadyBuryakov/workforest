@@ -19,3 +19,6 @@ htmlcov/
 # Packaging artifacts
 *.pkg.tar.zst
 pkg/
+
+# Tooling config
+.workforest.yaml

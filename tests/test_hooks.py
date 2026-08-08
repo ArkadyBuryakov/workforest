@@ -149,6 +149,28 @@ class TestNamedScripts:
         hooks.run_named_script(cfg, "record", cwd=repo.path, env=env)
         assert out.read_text() == f"{repo.path}|{repo.path.name}|{repo.path}\n"
 
+    def test_extra_args_appended_and_quoted(self, repo: Repo, tmp_path: Path) -> None:
+        out = tmp_path / "args.txt"
+        # redirection first, so the appended args become echo's arguments:
+        # `echo > out check -j2 'a b'` writes "check -j2 a b"
+        cfg = Config(scripts={"echoer": f"echo > {out}"})
+        env = hooks.script_env(
+            main=repo.path, worktree=repo.path, worktrees_dir=repo.path, branch=None
+        )
+        hooks.run_named_script(
+            cfg, "echoer", cwd=repo.path, env=env, extra_args=["check", "-j2", "a b"]
+        )
+        assert out.read_text() == "check -j2 a b\n"
+
+    def test_no_extra_args_runs_snippet_verbatim(self, repo: Repo, tmp_path: Path) -> None:
+        out = tmp_path / "plain.txt"
+        cfg = Config(scripts={"plain": f"echo ran > {out}"})
+        env = hooks.script_env(
+            main=repo.path, worktree=repo.path, worktrees_dir=repo.path, branch=None
+        )
+        hooks.run_named_script(cfg, "plain", cwd=repo.path, env=env)
+        assert out.read_text() == "ran\n"
+
     def test_unknown_name_lists_available(self, repo: Repo) -> None:
         cfg = Config(scripts={"a": "true", "b": "true"})
         with pytest.raises(WorkforestError, match=r"no script named 'nope' \(available: a, b\)"):

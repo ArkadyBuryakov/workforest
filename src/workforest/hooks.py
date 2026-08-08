@@ -7,6 +7,7 @@ the cd protocol on stdout stays clean.
 
 import io
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -120,13 +121,26 @@ def run_setup_scripts(config: Config, *, worktree: Path, env: dict[str, str]) ->
     return failures
 
 
-def run_named_script(config: Config, name: str, *, cwd: Path, env: dict[str, str]) -> None:
-    """Run a `scripts` entry from the merged config; raise on failure."""
+def run_named_script(
+    config: Config,
+    name: str,
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    extra_args: list[str] | None = None,
+) -> None:
+    """Run a `scripts` entry from the merged config; raise on failure.
+
+    extra_args are shell-quoted and appended to the snippet, so
+    `wf run make check` runs `make check` for a script defined as `make`.
+    """
     snippet = config.scripts.get(name)
     if snippet is None:
         available = ", ".join(sorted(config.scripts)) or "none defined"
         raise WorkforestError(f"no script named {name!r} (available: {available})")
-    output.success(f"running {name!r} in {cwd}")
+    if extra_args:
+        snippet = f"{snippet} {' '.join(shlex.quote(arg) for arg in extra_args)}"
+    output.success(f"running {name!r} in {cwd}: {snippet}")
     code = run_snippet(snippet, cwd=cwd, env=env)
     if code != 0:
         raise WorkforestError(f"script {name!r} failed with exit code {code}")

@@ -92,7 +92,7 @@ def _handle_checkout(ns: argparse.Namespace) -> CommandResult:
 
 def _handle_run(ns: argparse.Namespace) -> CommandResult:
     ctx = commands.build_context()
-    return commands.cmd_run(ctx, ns.script)
+    return commands.cmd_run(ctx, ns.script, ns.args)
 
 
 def _handle_init(ns: argparse.Namespace) -> CommandResult:
@@ -173,6 +173,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="run a named script from the merged config")
     p.add_argument("script", metavar="SCRIPT")
+    p.add_argument(
+        "args",
+        nargs=argparse.REMAINDER,
+        metavar="ARGS",
+        help="appended (shell-quoted) to the script command",
+    )
     p.set_defaults(func=_handle_run)
 
     p = sub.add_parser("init", help="scaffold a .workforest.yaml project config")

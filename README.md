@@ -51,6 +51,7 @@ wf create feature/login     # create worktree + run hooks + open in $EDITOR
 wf list                     # what's in the forest
 wf open login -o 'lazygit'  # open with any command instead
 wf run test                 # run a named script from config
+wf run make check -j2       # extra args are appended to the script command
 wf checkout login           # fold the branch back into the main checkout
 wf delete fix-y             # remove a worktree (asks about dirty changes)
 wf                          # interactive TUI (fzf)
@@ -131,7 +132,7 @@ workforest open   [NAME]   [-o OPENER] [-p PATH]
 workforest list   [--porcelain]
 workforest delete NAME...  [--force] [--delete-branch | --keep-branch]
 workforest checkout NAME   [--force]
-workforest run    SCRIPT
+workforest run    SCRIPT [ARGS...]
 workforest tui    [MODE]
 workforest init   [--local]
 workforest config [--json]

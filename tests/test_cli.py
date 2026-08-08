@@ -107,6 +107,23 @@ class TestExitCodes:
         assert "exit code 9" in result.err
 
 
+class TestRunPassthrough:
+    def test_extra_args_reach_the_script(self, run_cli: Run, repo: Repo) -> None:
+        out = repo.path / "out.txt"
+        repo.write_project_config(f"scripts:\n  echoer: echo > {out}\n")
+        result = run_cli("run", "echoer", "check", "-j2", cwd=repo.path)
+        assert result.code == 0, result.err
+        assert out.read_text() == "check -j2\n"
+
+    def test_flags_are_not_eaten_by_argparse(self, run_cli: Run, repo: Repo) -> None:
+        out = repo.path / "out.txt"
+        repo.write_project_config(f"scripts:\n  echoer: echo > {out}\n")
+        # --force is a workforest flag elsewhere; here it must pass through
+        result = run_cli("run", "echoer", "--force", "--delete-branch", cwd=repo.path)
+        assert result.code == 0, result.err
+        assert out.read_text() == "--force --delete-branch\n"
+
+
 class TestClaudeGate:
     def test_hidden_without_claude_dir(self, run_cli: Run, repo: Repo) -> None:
         # "claude" is not a subcommand without ~/.claude: it falls through to
