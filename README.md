@@ -166,4 +166,4 @@ Release: bump `__version__`, tag, update `sha256sums` in
 
 ## License
 
-MIT
+[MIT](./LICENSE)
