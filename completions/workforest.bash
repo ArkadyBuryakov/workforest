@@ -1,1 +1,0 @@
-../src/workforest/shell/completion.bash

@@ -92,10 +92,10 @@ Openers are command templates: `{path}` is replaced with the target path; a
 template without `{path}` just runs with the worktree as working directory.
 Environment variables expand in both openers and `window_command`.
 
-Fully commented reference configs: [`examples/config.yaml`](examples/config.yaml)
-(user/system) and [`examples/.workforest.yaml`](examples/.workforest.yaml)
-(project) — installed to `/usr/share/doc/workforest/examples/` by the Arch
-package.
+Fully commented reference configs:
+[`config.yaml`](src/workforest/examples/config.yaml) (user/system) and
+[`.workforest.yaml`](src/workforest/examples/.workforest.yaml) (project) —
+installed to `/usr/share/doc/workforest/examples/` by the Arch package.
 
 ### Script environment
 
@@ -156,8 +156,10 @@ directives for the `wf` wrapper, `--porcelain` listings, dumps).
 ## Development
 
 ```sh
-uv sync        # venv + dev dependencies (uv.lock)
-make check     # ruff + mypy --strict + pytest (coverage gate ≥ 90%)
+uv sync           # venv + dev dependencies (uv.lock)
+make check        # ruff + mypy --strict + pytest (coverage gate ≥ 90%)
+make install      # install this checkout as a uv tool (~/.local/bin/workforest)
+make uninstall    # remove it again
 ```
 
 Design docs live in `.design_docs/`. Packaging recipes live under

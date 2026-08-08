@@ -24,14 +24,14 @@ package() {
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
   # Shell completions (the wf function itself comes from `workforest shell-init`)
-  install -Dm644 completions/workforest.bash \
+  install -Dm644 src/workforest/shell/completion.bash \
     "$pkgdir/usr/share/bash-completion/completions/workforest"
   install -Dm644 completions/_workforest \
     "$pkgdir/usr/share/zsh/site-functions/_workforest"
 
   # Reference configs (DESIGN §4.3)
-  install -Dm644 examples/config.yaml \
+  install -Dm644 src/workforest/examples/config.yaml \
     "$pkgdir/usr/share/doc/$pkgname/examples/config.yaml"
-  install -Dm644 examples/.workforest.yaml \
+  install -Dm644 src/workforest/examples/.workforest.yaml \
     "$pkgdir/usr/share/doc/$pkgname/examples/workforest.project.yaml"
 }

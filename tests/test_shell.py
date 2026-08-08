@@ -47,7 +47,7 @@ class TestShellInit:
 
     def test_static_completion_files_are_valid_syntax(self) -> None:
         root = Path(__file__).parent.parent
-        bash_file = root / "completions" / "workforest.bash"
+        bash_file = root / "src" / "workforest" / "shell" / "completion.bash"
         check = subprocess.run(["bash", "-n", str(bash_file)], capture_output=True, check=False)
         assert check.returncode == 0, check.stderr
         if shutil.which("zsh"):
