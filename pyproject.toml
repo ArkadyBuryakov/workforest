@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/arkadyb/workforest"
+Homepage = "https://github.com/ArkadyBuryakov/workforest"
 
 [project.scripts]
 workforest = "workforest.cli:main"

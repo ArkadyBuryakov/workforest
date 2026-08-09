@@ -1,0 +1,81 @@
+name: Publish to AUR
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    permissions:
+      contents: write  # commit the generated PKGBUILD back to main
+    steps:
+      - name: Install system dependencies
+        run: >
+          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap
+          python python-yaml python-build python-installer python-wheel python-hatchling
+
+      - uses: actions/checkout@v4
+
+      - name: Update PKGBUILD to released version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd packaging/AUR
+          sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          # makepkg refuses to run as root
+          useradd -m builder
+          chown -R builder .
+          runuser -u builder -- updpkgsums
+          runuser -u builder -- sh -c 'makepkg --printsrcinfo > .SRCINFO'
+
+      - name: Test build, lint, and smoke test
+        run: |
+          cd packaging/AUR
+          runuser -u builder -- makepkg -f --noconfirm
+          namcap PKGBUILD workforest-*.pkg.tar.zst
+          pacman -U --noconfirm workforest-*.pkg.tar.zst
+          workforest --version
+          wf --version
+
+      - name: Push to AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur"
+          git config --global user.name "Arkady Buryakov"
+          git config --global user.email "arkady@buryakov.pro"
+          git clone ssh://aur@aur.archlinux.org/workforest.git /tmp/aur
+          cp packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO /tmp/aur/
+          cd /tmp/aur
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+          else
+            git commit -m "Update to $version"
+            git push origin HEAD:master
+          fi
+
+      - name: Commit generated PKGBUILD back to main
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cp packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO /tmp/
+          # The workflow runs detached at the release tag; move to main to commit.
+          # -f discards the in-place edits we just copied to /tmp; build
+          # artifacts in packaging/AUR are untracked and never git-added.
+          git fetch origin main
+          git checkout -f -B main origin/main
+          cp /tmp/PKGBUILD /tmp/.SRCINFO packaging/AUR/
+          git add packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO
+          if git diff --cached --quiet; then
+            echo "Repo copy already up to date."
+          else
+            git commit -m "Update PKGBUILD to $version"
+            git push origin main
+          fi
