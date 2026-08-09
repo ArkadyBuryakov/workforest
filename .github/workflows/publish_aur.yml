@@ -44,11 +44,17 @@ jobs:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          mkdir -p ~/.ssh
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur"
+          # Explicit paths only: ssh resolves ~ from the passwd entry (/root),
+          # while the shell resolves it from $HOME (/github/home) — they differ
+          # in container jobs. Host keys are pinned rather than keyscanned.
+          mkdir -p /tmp/ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /tmp/ssh/aur
+          chmod 600 /tmp/ssh/aur
+          cat > /tmp/ssh/known_hosts <<'EOF'
+          aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
+          aur.archlinux.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLMiLrP8pVi5BFX2i3vepSUnpedeiewE5XptnUnau+ZoeUOPkpoCgZZuYfpaIQfhhJJI5qgnjJmr4hyJbe/zxow=
+          EOF
+          export GIT_SSH_COMMAND="ssh -i /tmp/ssh/aur -o UserKnownHostsFile=/tmp/ssh/known_hosts"
           git config --global user.name "Arkady Buryakov"
           git config --global user.email "arkady@buryakov.pro"
           git clone ssh://aur@aur.archlinux.org/workforest.git /tmp/aur
