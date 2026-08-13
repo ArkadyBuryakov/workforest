@@ -8,6 +8,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     container: archlinux:latest
+    environment:
+      name: aur
+      url: https://aur.archlinux.org/packages/workforest
     permissions:
       contents: write  # commit the generated PKGBUILD back to main
     steps:
