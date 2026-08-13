@@ -129,10 +129,10 @@ class TestMergeSemantics:
         assert load_config(project).scripts == {}
 
     def test_openers_merge_like_scripts(self, tmp_path: Path) -> None:
-        write_system_config("openers:\n  edit: $EDITOR {path}\n")
+        write_system_config("openers:\n  edit: $EDITOR {target}\n")
         write_user_config("openers:\n  git: lazygit\n")
         cfg = load_config()
-        assert cfg.openers == {"edit": "$EDITOR {path}", "git": "lazygit"}
+        assert cfg.openers == {"edit": "$EDITOR {target}", "git": "lazygit"}
 
 
 class TestEnvOverrides:

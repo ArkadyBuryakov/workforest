@@ -49,7 +49,9 @@ class TestCreate:
         assert worktree_path.is_dir()
         assert gitutil.current_branch(worktree_path) == "feature/cool-thing"
         assert isinstance(action, ShellAction)
-        assert action.script == f"cd {worktree_path} && stub-editor"
+        assert action.script.startswith(f"cd {worktree_path} && WF_MAIN=")
+        assert action.script.endswith(" stub-editor")
+        assert "WF_BRANCH=feature/cool-thing" in action.script
 
     def test_existing_local_branch(self, repo: Repo) -> None:
         repo.add_branch("existing")
@@ -76,7 +78,8 @@ class TestCreate:
         ctx = ctx_for(repo)
         action = commands.cmd_create(ctx, None)
         assert isinstance(action, ShellAction)
-        assert action.script == f"cd {repo.path} && stub-editor"
+        assert action.script.startswith(f"cd {repo.path} && WF_MAIN=")
+        assert action.script.endswith(" stub-editor")
 
     def test_short_name_collision_errors(self, repo: Repo) -> None:
         ctx = ctx_for(repo)
@@ -120,22 +123,26 @@ class TestOpen:
         commands.cmd_create(ctx, "feat", no_open=True)
         action = commands.cmd_open(ctx, "feat")
         assert isinstance(action, ShellAction)
-        assert action.script == f"cd {ctx.worktrees_dir / 'feat'} && stub-editor"
+        assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && WF_MAIN=")
+        assert action.script.endswith(" stub-editor")
 
-    def test_open_subdirectory(self, repo: Repo) -> None:
+    def test_open_subdirectory_stays_at_root(self, repo: Repo) -> None:
+        # -p never changes the launch cwd; it only sets WF_TARGET.
         ctx = ctx_for(repo)
         commands.cmd_create(ctx, "feat", no_open=True)
         (ctx.worktrees_dir / "feat" / "src").mkdir()
         action = commands.cmd_open(ctx, "feat", path_arg="src")
         assert isinstance(action, ShellAction)
-        assert action.script == f"cd {ctx.worktrees_dir / 'feat' / 'src'} && stub-editor"
+        assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
+        assert "WF_TARGET=src" in action.script
 
-    def test_open_file_with_path_template(self, repo: Repo) -> None:
+    def test_open_file_with_target_template(self, repo: Repo) -> None:
         ctx = ctx_for(repo)
         commands.cmd_create(ctx, "feat", no_open=True)
-        action = commands.cmd_open(ctx, "feat", opener="tool {path}", path_arg="README.md")
+        action = commands.cmd_open(ctx, "feat", opener="tool {target}", path_arg="README.md")
         assert isinstance(action, ShellAction)
-        assert action.script == f"cd {ctx.worktrees_dir / 'feat'} && tool README.md"
+        assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
+        assert action.script.endswith(" tool README.md")
 
     def test_open_unknown_errors(self, repo: Repo) -> None:
         with pytest.raises(WorkforestError, match="'nope' not found"):

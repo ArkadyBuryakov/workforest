@@ -149,7 +149,9 @@ class Recorder:
 def recorder(tmp_path: Path) -> Recorder:
     log = tmp_path / "recorder.log"
     script = tmp_path / "recorder"
-    script.write_text(f'#!/bin/sh\necho "argv=$* cwd=$PWD" >> {log}\n')
+    script.write_text(
+        f'#!/bin/sh\necho "argv=$* argc=$# cwd=$PWD wf_worktree=$WF_WORKTREE" >> {log}\n'
+    )
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return Recorder(path=script, log=log)
 

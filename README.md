@@ -84,17 +84,35 @@ All keys, with defaults:
 ```yaml
 worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"  # where the forest lives
 opener: ""              # default opener; "" → $VISUAL → $EDITOR
-openers: {}             # name -> command template, e.g. edit: "$EDITOR {path}"
+openers: {}             # name -> command template, e.g. edit: "$EDITOR {target}"
 window_command: ""      # "" → current shell; or e.g.
-                        # "kitty --title {title} --directory {path} {command}"
+                        # "kitty --title {title} --directory {worktree} $WF_COMMAND"
 symlinks: []            # untracked assets linked from main into new worktrees
 setup_scripts: []       # shell snippets run in a fresh worktree
 scripts: {}             # name -> snippet for `wf run NAME`
 ```
 
-Openers are command templates: `{path}` is replaced with the target path; a
-template without `{path}` just runs with the worktree as working directory.
-Environment variables expand in both openers and `window_command`.
+Openers and `window_command` are command templates sharing one variable
+family, which the launched process (and every script) also receives as
+environment variables:
+
+| Variable | Value |
+|---|---|
+| `WF_MAIN` | main worktree path, `/home/user/Projects/project_name` |
+| `WF_NAME` | repo name, `project_name` |
+| `WF_WORKTREES_DIR` | resolved worktrees directory |
+| `WF_WORKTREE` | this worktree's path |
+| `WF_BRANCH` | its branch (empty if detached) |
+| `WF_TARGET` | the `-p` argument, default `.` (launch-only) |
+| `WF_TITLE` | window label, `project_name: feat-x` (launch-only) |
+
+In templates, `$WF_X` (like any `$ENV` variable) inserts raw text that
+word-splits into multiple arguments, while `{x}` — `{worktree}`, `{target}`,
+`{title}`, … — inserts the shell-quoted value as exactly one argument.
+Openers run with the worktree root as working directory; in
+`window_command` the resolved opener command is additionally available as
+`$WF_COMMAND` (spliced into argv words) or `{command}` (one argument, for
+`$SHELL -c` wrappers).
 
 Fully commented reference configs:
 [`config.yaml`](src/workforest/examples/config.yaml) (user/system) and

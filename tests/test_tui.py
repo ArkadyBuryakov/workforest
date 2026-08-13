@@ -49,7 +49,7 @@ class TestPureHelpers:
 class TestCarousel:
     def test_config_openers_win(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
-        ctx.config = Config(openers={"edit": "$EDITOR {path}", "git": "lazygit"})
+        ctx.config = Config(openers={"edit": "$EDITOR {target}", "git": "lazygit"})
         assert tui.opener_carousel(ctx) == [("edit", "edit"), ("git", "git")]
 
     def test_derived_fallback_pair(self, repo: Repo) -> None:

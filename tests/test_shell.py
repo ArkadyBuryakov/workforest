@@ -151,7 +151,7 @@ class TestCompleteBackend:
 
     def test_scripts_and_openers(self, repo: Repo, run_cli: Run) -> None:
         repo.write_project_config(
-            "scripts:\n  migrate: 'true'\n  test: 'true'\nopeners:\n  edit: '$EDITOR {path}'\n"
+            "scripts:\n  migrate: 'true'\n  test: 'true'\nopeners:\n  edit: '$EDITOR {target}'\n"
         )
         result = run_cli("--complete", "scripts", cwd=repo.path)
         assert result.out.splitlines() == ["migrate", "test"]

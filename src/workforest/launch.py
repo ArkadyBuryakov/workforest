@@ -3,9 +3,18 @@
 No tool names appear here: what to run comes from config templates and the
 $VISUAL/$EDITOR contract; where to run it is the current shell (ShellAction)
 unless the user configured a window_command template.
+
+Templates and launched processes share one variable family, WF_*:
+
+* `$WF_X` (and any environment variable) is substituted as raw text at
+  template time, so it word-splits into multiple arguments;
+* `{x}` is the shell-quoted form of `$WF_X` — always exactly one argument;
+* the launched process receives the same family as environment variables
+  (Popen env in the window path, prefix assignments in the shell path).
 """
 
 import os
+import re
 import shlex
 import string
 import subprocess
@@ -14,6 +23,8 @@ from pathlib import Path
 
 from workforest.config import Config
 from workforest.errors import WorkforestError
+
+_PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 
 
 @dataclass(slots=True, frozen=True)
@@ -41,56 +52,99 @@ def resolve_opener_template(config: Config, opener_arg: str | None) -> str:
     )
 
 
-def resolve_target(worktree: Path, path_arg: str | None) -> tuple[Path, str]:
-    """-p resolution: directories become cwd, files stay opener arguments."""
-    if path_arg in (None, "", "."):
-        return worktree, "."
-    assert path_arg is not None
-    target = worktree / path_arg
-    if target.is_dir():
-        return target, "."
-    return worktree, path_arg
+def launch_vars(
+    *,
+    main: Path,
+    worktree: Path,
+    worktrees_dir: Path,
+    branch: str | None,
+    target: str,
+) -> dict[str, str]:
+    """The full WF_* family for a launch (DESIGN §3.5/§3.6): the scripts'
+    structural five plus the launch-only WF_TARGET and WF_TITLE."""
+    return {
+        "WF_MAIN": str(main),
+        "WF_NAME": main.name,
+        "WF_WORKTREES_DIR": str(worktrees_dir),
+        "WF_WORKTREE": str(worktree),
+        "WF_BRANCH": branch or "",
+        "WF_TARGET": target,
+        "WF_TITLE": f"{main.name}: {worktree.name}",
+    }
 
 
-def _expand_env(template: str) -> str:
-    return string.Template(template).safe_substitute(os.environ)
+def expand_template(template: str, variables: dict[str, str]) -> str:
+    """`$WF_X`/`$ENV` insert raw text; `{x}` inserts $WF_X shell-quoted.
 
-
-def build_opener_command(template: str, path_arg: str) -> str:
-    expanded = _expand_env(template)
-    if "{path}" in expanded:
-        return expanded.replace("{path}", shlex.quote(path_arg))
-    return expanded
+    Raw substitution never touches the quoted insertions: the template is
+    split on `{x}` placeholders and only the literal segments go through
+    string.Template, so values containing `$` or braces are inert.
+    """
+    mapping = {**os.environ, **variables}
+    quoted = {name.removeprefix("WF_").lower(): value for name, value in variables.items()}
+    parts: list[str] = []
+    pos = 0
+    for match in _PLACEHOLDER.finditer(template):
+        parts.append(string.Template(template[pos : match.start()]).safe_substitute(mapping))
+        name = match.group(1)
+        if name not in quoted:
+            known = ", ".join("{" + key + "}" for key in sorted(quoted))
+            raise WorkforestError(f"unknown placeholder {{{name}}} (known: {known})")
+        parts.append(shlex.quote(quoted[name]))
+        pos = match.end()
+    parts.append(string.Template(template[pos:]).safe_substitute(mapping))
+    return "".join(parts)
 
 
 def launch(
     config: Config,
     *,
+    main: Path,
     worktree: Path,
-    repo_name: str,
+    worktrees_dir: Path,
+    branch: str | None,
     opener_arg: str | None = None,
     path_arg: str | None = None,
 ) -> ShellAction | None:
     """Open a worktree: a ShellAction for the current shell, or a detached
-    window spawn (returning None) when window_command is configured."""
+    window spawn (returning None) when window_command is configured.
+
+    The launch cwd is always the worktree root; -p only sets WF_TARGET,
+    the opener's argument.
+    """
     template = resolve_opener_template(config, opener_arg)
-    cwd, resolved_path = resolve_target(worktree, path_arg)
-    command = build_opener_command(template, resolved_path)
-    if config.window_command:
-        title = f"{repo_name}: {worktree.name}"
-        spawn_window(config.window_command, title=title, cwd=cwd, command=command)
-        return None
-    return ShellAction(f"cd {shlex.quote(str(cwd))} && {command}")
-
-
-def spawn_window(window_template: str, *, title: str, cwd: Path, command: str) -> None:
-    """Spawn the user's window_command fully detached (DESIGN §3.4)."""
-    expanded = (
-        _expand_env(window_template)
-        .replace("{title}", shlex.quote(title))
-        .replace("{path}", shlex.quote(str(cwd)))
-        .replace("{command}", command)
+    target = path_arg if path_arg else "."
+    variables = launch_vars(
+        main=main,
+        worktree=worktree,
+        worktrees_dir=worktrees_dir,
+        branch=branch,
+        target=target,
     )
+    command = expand_template(template, variables)
+    if config.window_command:
+        spawn_window(config.window_command, variables=variables, command=command, cwd=worktree)
+        return None
+    # Prefix assignments scope WF_* to the opener command alone — nothing
+    # leaks into (or goes stale in) the user's interactive shell.
+    assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in variables.items())
+    return ShellAction(f"cd {shlex.quote(str(worktree))} && {assignments} {command}")
+
+
+def spawn_window(
+    window_template: str,
+    *,
+    variables: dict[str, str],
+    command: str,
+    cwd: Path,
+) -> None:
+    """Spawn the user's window_command fully detached (DESIGN §3.4).
+
+    The resolved opener command joins the family as {command} (one argument,
+    e.g. for `$SHELL -c {command}`) / `$WF_COMMAND` (spliced into argv words);
+    it is template-only and not exported to the environment.
+    """
+    expanded = expand_template(window_template, {**variables, "WF_COMMAND": command})
     argv = shlex.split(expanded)
     if not argv:
         raise WorkforestError("window_command expanded to an empty command")
@@ -98,6 +152,7 @@ def spawn_window(window_template: str, *, title: str, cwd: Path, command: str) -
         subprocess.Popen(
             argv,
             cwd=cwd,
+            env={**os.environ, **variables},
             start_new_session=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

@@ -115,8 +115,10 @@ def cmd_create(
         return None
     return launch.launch(
         ctx.config,
+        main=ctx.main,
         worktree=worktree_path,
-        repo_name=ctx.repo_name,
+        worktrees_dir=ctx.worktrees_dir,
+        branch=branch,
         opener_arg=opener,
         path_arg=path_arg,
     )
@@ -134,8 +136,10 @@ def cmd_open(
     worktree = find_managed(ctx, name)
     return launch.launch(
         ctx.config,
+        main=ctx.main,
         worktree=worktree.path,
-        repo_name=ctx.repo_name,
+        worktrees_dir=ctx.worktrees_dir,
+        branch=worktree.branch,
         opener_arg=opener,
         path_arg=path_arg,
     )

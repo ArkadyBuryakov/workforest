@@ -140,7 +140,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     def opener_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("-o", "--opener", help="opener name or command template")
-        p.add_argument("-p", "--path", help="path inside the worktree to open")
+        p.add_argument(
+            "-p", "--path", help="path inside the worktree, passed to the opener as {target}"
+        )
 
     p = sub.add_parser("create", help="create (or reuse) a worktree for a branch and open it")
     p.add_argument("branch", nargs="?", help="branch name (default: current branch)")
