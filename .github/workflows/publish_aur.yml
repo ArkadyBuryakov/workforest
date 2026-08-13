@@ -72,6 +72,9 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           cp packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO /tmp/
+          # The workspace is created by the host runner under a different UID
+          # than the container's root, so git rejects it without this.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # The workflow runs detached at the release tag; move to main to commit.
           # -f discards the in-place edits we just copied to /tmp; build
           # artifacts in packaging/AUR are untracked and never git-added.
