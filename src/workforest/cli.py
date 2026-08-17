@@ -12,20 +12,23 @@ from workforest.commands import CommandResult
 from workforest.errors import EXIT_CANCELLED, EXIT_OK, WorkforestError
 from workforest.launch import ShellAction
 
-SUBCOMMANDS = frozenset(
-    {
-        "create",
-        "open",
-        "list",
-        "delete",
-        "checkout",
-        "run",
-        "tui",
-        "init",
-        "config",
-        "shell-init",
-    }
-)
+# Single source for subcommand names and their one-line help: build_parser()
+# and the `commands` completion topic both read from here.
+SUBCOMMAND_HELP: dict[str, str] = {
+    "create": "create (or reuse) a worktree for a branch and open it",
+    "open": "open an existing worktree",
+    "list": "list managed worktrees",
+    "delete": "delete worktree(s)",
+    "checkout": "delete a worktree and check its branch out in main",
+    "run": "run a named script from the merged config",
+    "tui": "interactive mode (requires fzf)",
+    "init": "scaffold a .workforest.yaml project config",
+    "config": "show the merged configuration and its sources",
+    "shell-init": "print the wf shell wrapper (eval in your shell rc)",
+    "claude": "Claude Code integration (experimental: may break on any Claude Code update)",
+}
+
+SUBCOMMANDS = frozenset(SUBCOMMAND_HELP) - {"claude"}  # claude is feature-gated
 
 
 def _claude_available() -> bool:
@@ -144,23 +147,23 @@ def build_parser() -> argparse.ArgumentParser:
             "-p", "--path", help="path inside the worktree, passed to the opener as {target}"
         )
 
-    p = sub.add_parser("create", help="create (or reuse) a worktree for a branch and open it")
+    p = sub.add_parser("create", help=SUBCOMMAND_HELP["create"])
     p.add_argument("branch", nargs="?", help="branch name (default: current branch)")
     opener_args(p)
     p.add_argument("--no-hooks", action="store_true", help="skip symlinks and setup scripts")
     p.add_argument("--no-open", action="store_true", help="create only, do not open")
     p.set_defaults(func=_handle_create)
 
-    p = sub.add_parser("open", help="open an existing worktree")
+    p = sub.add_parser("open", help=SUBCOMMAND_HELP["open"])
     p.add_argument("name", nargs="?", help="worktree directory name")
     opener_args(p)
     p.set_defaults(func=_handle_open)
 
-    p = sub.add_parser("list", help="list managed worktrees")
+    p = sub.add_parser("list", help=SUBCOMMAND_HELP["list"])
     p.add_argument("--porcelain", action="store_true", help="stable tab-separated output")
     p.set_defaults(func=_handle_list)
 
-    p = sub.add_parser("delete", help="delete worktree(s)")
+    p = sub.add_parser("delete", help=SUBCOMMAND_HELP["delete"])
     p.add_argument("names", nargs="+", metavar="NAME")
     p.add_argument("--force", action="store_true", help="skip the dirty-worktree confirmation")
     group = p.add_mutually_exclusive_group()
@@ -168,12 +171,12 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--keep-branch", action="store_true", help="never delete the branch")
     p.set_defaults(func=_handle_delete)
 
-    p = sub.add_parser("checkout", help="delete a worktree and check its branch out in main")
+    p = sub.add_parser("checkout", help=SUBCOMMAND_HELP["checkout"])
     p.add_argument("name", metavar="NAME")
     p.add_argument("--force", action="store_true", help="skip the dirty-worktree confirmation")
     p.set_defaults(func=_handle_checkout)
 
-    p = sub.add_parser("run", help="run a named script from the merged config")
+    p = sub.add_parser("run", help=SUBCOMMAND_HELP["run"])
     p.add_argument("script", metavar="SCRIPT")
     p.add_argument(
         "args",
@@ -183,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=_handle_run)
 
-    p = sub.add_parser("init", help="scaffold a .workforest.yaml project config")
+    p = sub.add_parser("init", help=SUBCOMMAND_HELP["init"])
     p.add_argument(
         "--local",
         action="store_true",
@@ -191,23 +194,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=_handle_init)
 
-    p = sub.add_parser("config", help="show the merged configuration and its sources")
+    p = sub.add_parser("config", help=SUBCOMMAND_HELP["config"])
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_handle_config)
 
-    p = sub.add_parser("shell-init", help="print the wf shell wrapper (eval in your shell rc)")
+    p = sub.add_parser("shell-init", help=SUBCOMMAND_HELP["shell-init"])
     p.add_argument("shell", nargs="?", choices=("bash", "zsh"), help="default: from $SHELL")
     p.set_defaults(func=_handle_shell_init)
 
-    p = sub.add_parser("tui", help="interactive mode (requires fzf)")
+    p = sub.add_parser("tui", help=SUBCOMMAND_HELP["tui"])
     p.add_argument("mode", nargs="?", help="initial mode (create/open/checkout/delete)")
     p.set_defaults(func=_handle_tui)
 
     if _claude_available():
-        p = sub.add_parser(
-            "claude",
-            help="Claude Code integration (experimental: may break on any Claude Code update)",
-        )
+        p = sub.add_parser("claude", help=SUBCOMMAND_HELP["claude"])
         claude_sub = p.add_subparsers(dest="claude_command", required=True)
         cp = claude_sub.add_parser(
             "copy-session", help="copy a session from the main worktree into this one"

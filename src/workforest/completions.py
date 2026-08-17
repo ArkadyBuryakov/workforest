@@ -1,7 +1,9 @@
 """`workforest --complete TOPIC` backend.
 
 Completion must never break the shell: any error yields an empty candidate
-list, and everything stays on stdout as bare lines.
+list, and everything stays on stdout as plain lines. Most topics emit bare
+names; the `commands` topic emits `NAME<TAB>KIND<TAB>DESCRIPTION` so shells
+that can render descriptions (zsh) do, while others take field 1.
 """
 
 from workforest import commands, gitutil
@@ -44,9 +46,18 @@ def _config() -> Config:
 
 
 def _commands() -> list[str]:
-    from workforest.cli import _known_subcommands
+    from workforest.cli import SUBCOMMAND_HELP, _known_subcommands
 
-    return sorted(_known_subcommands()) + sorted(_config().openers)
+    known = _known_subcommands()
+    openers = _config().openers
+    # An opener sharing a subcommand's name is shadowed by it (cli._preprocess
+    # dispatches known subcommands first), so don't offer it.
+    return [f"{name}\tcommand\t{SUBCOMMAND_HELP[name]}" for name in sorted(known)] + [
+        # collapse whitespace: a tab/newline in a template would break the line protocol
+        f"{name}\topener\t{' '.join(openers[name].split())}"
+        for name in sorted(openers)
+        if name not in known
+    ]
 
 
 def _branches() -> list[str]:
