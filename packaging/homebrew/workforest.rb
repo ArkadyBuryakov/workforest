@@ -6,8 +6,8 @@ class Workforest < Formula
 
   desc "Git worktree forest management with per-branch setup hooks"
   homepage "https://github.com/ArkadyBuryakov/workforest"
-  url "https://github.com/ArkadyBuryakov/workforest/archive/v0.2.1.tar.gz"
-  sha256 "47062e51ae374a9afce50ee0be6c39b08da6c96064450b3c2c58566d05fb7078"
+  url "https://github.com/ArkadyBuryakov/workforest/archive/v0.2.2.tar.gz"
+  sha256 "0f1800613d6fe942b0b76582e08f646a3287e28e0e6baa492b2540ad145d19de"
   license "MIT"
   head "https://github.com/ArkadyBuryakov/workforest.git", branch: "main"
 
