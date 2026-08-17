@@ -161,7 +161,7 @@ def run(initial_mode: str | None = None) -> CommandResult:  # pragma: no cover -
     is unit-tested; this function only wires them to the fzf subprocess."""
     if shutil.which("fzf") is None:
         raise WorkforestError(
-            "the TUI requires fzf (e.g. pacman -S fzf); "
+            "the TUI requires fzf (e.g. pacman -S fzf, brew install fzf); "
             "all actions are also available as plain subcommands"
         )
     ctx = commands.build_context()

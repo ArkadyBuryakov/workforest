@@ -29,6 +29,9 @@ opened, and cleaned up with one command.
 # Arch Linux
 yay -S workforest        # AUR
 
+# macOS (or Linux with Homebrew)
+brew install arkadyburyakov/tap/workforest
+
 # anywhere else
 uv tool install workforest   # or: pipx install workforest
 ```
@@ -45,7 +48,8 @@ shell's directory — a plain binary cannot) and registers completions. Without
 it everything still works, but "open in current shell" prints the `cd`
 command instead of performing it.
 
-Requirements: Linux, git ≥ 2.36, Python ≥ 3.14. Optional: `fzf` for the TUI.
+Requirements: Linux or macOS, git ≥ 2.36, Python ≥ 3.14 (the AUR and
+Homebrew packages bring their own). Optional: `fzf` for the TUI.
 
 ## Quick start
 
@@ -176,11 +180,12 @@ make install      # install this checkout as a uv tool (~/.local/bin/workforest)
 make uninstall    # remove it again
 ```
 
-Packaging recipes live under
-`packaging/` (one directory per package manager; currently `packaging/AUR/`).
-Release: bump `__version__`, tag, update `sha256sums` in
-`packaging/AUR/PKGBUILD`, regenerate `.SRCINFO`
-(`makepkg --printsrcinfo > .SRCINFO` inside `packaging/AUR/`), push to AUR.
+Packaging recipes live under `packaging/` (one directory per package
+manager: `packaging/AUR/`, `packaging/homebrew/`).
+Release: bump `__version__` and push to main — CI tags the release and
+publishes to PyPI, the AUR, and the
+[Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap), committing
+the regenerated recipes back to the repo.
 
 ## License
 
