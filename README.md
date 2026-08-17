@@ -178,6 +178,12 @@ workforest shell-init [bash|zsh]
 workforest claude copy-session SESSION_ID   # experimental
 ```
 
+`create` resolves BRANCH in order: existing local branch, then a branch on
+exactly one remote (checked out tracking it), then a brand-new branch.
+`REMOTE/BRANCH` picks the remote explicitly — needed when several remotes
+carry the same branch name; if that local name is already taken, `create`
+prompts for a different one.
+
 `workforest claude` (shown only when `~/.claude` exists) copies a Claude
 Code session from the main worktree into the current one. It is
 **experimental**: it manipulates Claude Code's private on-disk state,

@@ -2,8 +2,9 @@
 
 Completion must never break the shell: any error yields an empty candidate
 list, and everything stays on stdout as plain lines. Most topics emit bare
-names; the `commands` topic emits `NAME<TAB>KIND<TAB>DESCRIPTION` so shells
-that can render descriptions (zsh) do, while others take field 1.
+names; the `commands` topic emits `NAME<TAB>KIND<TAB>DESCRIPTION` and the
+`branches` topic `NAME<TAB>LOCATION` so shells that can render descriptions
+(zsh) do, while others take field 1.
 """
 
 from workforest import commands, gitutil
@@ -61,14 +62,22 @@ def _commands() -> list[str]:
 
 
 def _branches() -> list[str]:
-    """Local then remote branches, minus those already checked out."""
+    """`NAME<TAB>LOCATION` lines, minus branches already checked out: local
+    branches by their bare name (location lists their remotes too), remote-only
+    branches remote-qualified — the form `wf create` resolves unambiguously."""
     root = gitutil.repo_root()
     taken = {w.branch for w in gitutil.list_worktrees(root) if w.branch}
-    candidates: dict[str, None] = {}
-    for branch in (*gitutil.local_branches(root), *gitutil.remote_branches(root)):
-        if branch not in taken:
-            candidates.setdefault(branch)
-    return list(candidates)
+    local = gitutil.local_branches(root)
+    remote_map = gitutil.remote_branches(root)
+    lines = [
+        f"{branch}\t{', '.join(['local', *remote_map.get(branch, [])])}"
+        for branch in local
+        if branch not in taken
+    ]
+    for branch, remotes in remote_map.items():
+        if branch not in taken and branch not in local:
+            lines.extend(f"{remote}/{branch}\t{remote}" for remote in remotes)
+    return lines
 
 
 def _worktrees() -> list[str]:

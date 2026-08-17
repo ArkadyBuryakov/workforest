@@ -127,7 +127,8 @@ def _fzf_args(mode: str, opener_line: str | None) -> list[str]:
     ]
     if opener_line is not None:
         args += [f"--preview=echo {opener_line!r}", "--preview-window=bottom,1,border-top"]
-    if mode == "claude":
+    if mode in ("create", "claude"):
+        # candidates are NAME<TAB>ANNOTATION lines
         args += ["--delimiter=\t", "--tabstop=4"]
     return args
 
@@ -147,7 +148,8 @@ def _run_fzf(  # pragma: no cover - real fzf needs a terminal
 def _execute(ctx: Context, mode: str, selection: str, opener_arg: str | None) -> CommandResult:
     match mode:
         case "create":
-            return commands.cmd_create(ctx, selection, opener=opener_arg)
+            # a picked candidate is NAME<TAB>LOCATION; a typed query is bare
+            return commands.cmd_create(ctx, selection.split("\t", 1)[0], opener=opener_arg)
         case "open":
             return commands.cmd_open(ctx, selection, opener=opener_arg)
         case "checkout":

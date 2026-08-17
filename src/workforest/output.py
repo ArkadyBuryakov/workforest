@@ -54,6 +54,20 @@ def interactive() -> bool:
     return sys.stdin.isatty() and sys.stderr.isatty()
 
 
+def ask(question: str) -> str:
+    """Ask for a line of free-text input on the terminal.
+
+    Callers must check interactive() first and provide a non-interactive
+    path (an error with guidance) of their own.
+    """
+    print(f"{question} ", file=sys.stderr, end="", flush=True)
+    try:
+        return input().strip()
+    except EOFError, KeyboardInterrupt:
+        print(file=sys.stderr)
+        raise CancelledError("cancelled") from None
+
+
 def confirm(question: str, *, default: bool = False) -> bool:
     """Ask a y/N question on the terminal.
 

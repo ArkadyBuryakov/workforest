@@ -138,10 +138,37 @@ class TestCompleteBackend:
         commands.cmd_create(ctx, "taken", no_open=True)
         result = run_cli("--complete", "branches", cwd=repo.path)
         assert result.code == 0
-        candidates = result.out.splitlines()
+        candidates = [line.split("\t")[0] for line in result.out.splitlines()]
         assert "free" in candidates
         assert "taken" not in candidates
         assert "main" not in candidates  # checked out in the main worktree
+
+    def test_branches_annotated_with_location(
+        self, make_repo: Callable[..., Repo], run_cli: Run
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_branch("everywhere")
+        repo.add_branch("remote-only", remote_only=True)
+        result = run_cli("--complete", "branches", cwd=repo.path)
+        rows = dict(line.split("\t") for line in result.out.splitlines())
+        assert rows["everywhere"] == "local, origin"
+        # remote-only branches are offered remote-qualified
+        assert "remote-only" not in rows
+        assert rows["origin/remote-only"] == "origin"
+
+    def test_branches_on_multiple_remotes_offered_qualified(
+        self, make_repo: Callable[..., Repo], run_cli: Run
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("shared")
+        repo.git("push", "-q", "upstream", "shared")
+        repo.git("branch", "-D", "shared")
+        result = run_cli("--complete", "branches", cwd=repo.path)
+        rows = dict(line.split("\t") for line in result.out.splitlines())
+        assert "shared" not in rows
+        assert rows["origin/shared"] == "origin"
+        assert rows["upstream/shared"] == "upstream"
 
     def test_worktrees(self, repo: Repo, run_cli: Run) -> None:
         ctx = commands.build_context(repo.path)

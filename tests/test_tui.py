@@ -86,7 +86,8 @@ class TestModesAndCandidates:
         repo.add_branch("free-branch")
         monkeypatch.chdir(repo.path)
         ctx = commands.build_context(repo.path)
-        assert "free-branch" in tui.candidates(ctx, "create")
+        names = [line.split("\t")[0] for line in tui.candidates(ctx, "create")]
+        assert "free-branch" in names
 
     def test_other_candidates_are_worktrees(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)

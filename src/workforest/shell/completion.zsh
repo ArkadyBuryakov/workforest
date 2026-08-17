@@ -38,6 +38,14 @@ _workforest_complete() {
                 cmds+=("${name//:/\\:}:${desc}")
             done
             (( ${#cmds} )) && _describe -t commands 'workforest command' cmds
+        elif [[ "$topic" == branches ]]; then
+            # NAME<TAB>LOCATION → described candidates (local / remote names).
+            for line in "${items[@]}"; do
+                name="${line%%$'\t'*}"
+                desc="${line#*$'\t'}"
+                cmds+=("${name//:/\\:}:${desc}")
+            done
+            (( ${#cmds} )) && _describe -t branches 'branch' cmds
         else
             (( ${#items} )) && compadd -a items
         fi

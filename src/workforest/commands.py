@@ -62,6 +62,41 @@ def short_branch_name(branch: str) -> str:
     return branch.rsplit("/", 1)[-1]
 
 
+def _resolve_branch(ctx: Context, spec: str) -> tuple[str, str | None]:
+    """Resolve BRANCH or REMOTE/BRANCH to (local branch, remote ref to track).
+
+    Precedence: exact local branch, explicit REMOTE/BRANCH, a branch known to
+    exactly one remote; anything else names a new local branch.
+    """
+    if gitutil.branch_exists(spec, ctx.main):
+        return spec, None
+    remote_map = gitutil.remote_branches(ctx.main)
+    for remote in sorted(gitutil.remotes(ctx.main), key=len, reverse=True):
+        branch = spec.removeprefix(f"{remote}/")
+        if branch == spec:
+            continue
+        if remote not in remote_map.get(branch, ()):
+            raise WorkforestError(f"branch {branch!r} not found on remote {remote!r}")
+        while gitutil.branch_exists(branch, ctx.main):
+            # The obvious local name is taken (possibly tracking a different
+            # remote), so the new branch needs a name of its own.
+            if not output.interactive():
+                raise WorkforestError(
+                    f"branch {branch!r} already exists locally; `wf create {branch}` to use it"
+                )
+            branch = output.ask(f"branch {branch!r} already exists locally; local name for {spec}:")
+            if not branch:
+                raise CancelledError("cancelled")
+        return branch, spec
+    carriers = remote_map.get(spec, [])
+    if len(carriers) > 1:
+        raise WorkforestError(
+            f"branch {spec!r} exists on multiple remotes ({', '.join(carriers)}); "
+            f"pick one, e.g. `wf create {carriers[0]}/{spec}`"
+        )
+    return spec, f"{carriers[0]}/{spec}" if carriers else None
+
+
 def _script_env(ctx: Context, worktree: Path, branch: str | None) -> dict[str, str]:
     return hooks.script_env(
         main=ctx.main,
@@ -84,6 +119,7 @@ def cmd_create(
         branch = gitutil.current_branch(ctx.cwd_root)
         if branch == "HEAD":
             raise WorkforestError("detached HEAD: specify a branch name")
+    branch, track = _resolve_branch(ctx, branch)
 
     existing = gitutil.find_branch_worktree(branch, ctx.main)
     if existing is not None:
@@ -102,7 +138,7 @@ def cmd_create(
         if worktree_path.exists():
             raise WorkforestError(f"directory exists but is not a worktree: {worktree_path}")
         ctx.worktrees_dir.mkdir(parents=True, exist_ok=True)
-        gitutil.worktree_add(ctx.main, worktree_path, branch)
+        gitutil.worktree_add(ctx.main, worktree_path, branch, track=track)
         output.success(f"created worktree for {branch!r} at {worktree_path}")
         if not no_hooks:
             env = _script_env(ctx, worktree_path, branch)

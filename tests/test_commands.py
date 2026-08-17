@@ -65,6 +65,61 @@ class TestCreate:
         ctx = ctx_for(repo)
         commands.cmd_create(ctx, "remote-feat", no_open=True)
         assert gitutil.current_branch(ctx.worktrees_dir / "remote-feat") == "remote-feat"
+        upstream = repo.git("rev-parse", "--abbrev-ref", "remote-feat@{upstream}")
+        assert upstream == "origin/remote-feat"
+
+    def test_remote_qualified_branch(self, make_repo: Callable[..., Repo]) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("feat", remote_only=True, remote="upstream")
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "upstream/feat", no_open=True)
+        assert gitutil.current_branch(ctx.worktrees_dir / "feat") == "feat"
+        assert repo.git("rev-parse", "--abbrev-ref", "feat@{upstream}") == "upstream/feat"
+
+    def test_branch_on_multiple_remotes_needs_qualifying(
+        self, make_repo: Callable[..., Repo]
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("shared")
+        repo.git("push", "-q", "upstream", "shared")
+        repo.git("branch", "-D", "shared")
+        ctx = ctx_for(repo)
+        with pytest.raises(WorkforestError, match="origin, upstream"):
+            commands.cmd_create(ctx, "shared", no_open=True)
+        commands.cmd_create(ctx, "upstream/shared", no_open=True)
+        assert repo.git("rev-parse", "--abbrev-ref", "shared@{upstream}") == "upstream/shared"
+
+    def test_branch_missing_on_named_remote_errors(self, make_repo: Callable[..., Repo]) -> None:
+        repo = make_repo(origin=True)
+        ctx = ctx_for(repo)
+        with pytest.raises(WorkforestError, match="not found on remote 'origin'"):
+            commands.cmd_create(ctx, "origin/ghost", no_open=True)
+
+    def test_remote_qualified_with_taken_local_name_prompts(
+        self, make_repo: Callable[..., Repo], tty: Callable[[list[str]], None]
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("feat")  # local, pushed to origin
+        repo.git("push", "-q", "upstream", "feat")
+        ctx = ctx_for(repo)
+        tty(["feat-upstream"])
+        commands.cmd_create(ctx, "upstream/feat", no_open=True)
+        worktree = ctx.worktrees_dir / "feat-upstream"
+        assert gitutil.current_branch(worktree) == "feat-upstream"
+        upstream = repo.git("rev-parse", "--abbrev-ref", "feat-upstream@{upstream}")
+        assert upstream == "upstream/feat"
+
+    def test_remote_qualified_with_taken_local_name_errors_without_tty(
+        self, make_repo: Callable[..., Repo]
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_branch("feat")
+        ctx = ctx_for(repo)
+        with pytest.raises(WorkforestError, match="already exists locally"):
+            commands.cmd_create(ctx, "origin/feat", no_open=True)
 
     def test_branch_already_in_worktree_reuses_it(self, repo: Repo) -> None:
         ctx = ctx_for(repo)

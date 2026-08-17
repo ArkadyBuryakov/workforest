@@ -148,7 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     p = sub.add_parser("create", help=SUBCOMMAND_HELP["create"])
-    p.add_argument("branch", nargs="?", help="branch name (default: current branch)")
+    p.add_argument(
+        "branch", nargs="?", help="branch name or REMOTE/BRANCH (default: current branch)"
+    )
     opener_args(p)
     p.add_argument("--no-hooks", action="store_true", help="skip symlinks and setup scripts")
     p.add_argument("--no-open", action="store_true", help="create only, do not open")
