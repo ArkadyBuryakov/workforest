@@ -29,6 +29,8 @@ _PROMPTS = {
 
 _EXPECT_KEYS = "left,right,alt-h,alt-l,ctrl-left,ctrl-right,esc"
 
+_CLAUDE_WARNING = "⚠ experimental: may break on any Claude Code update"
+
 
 def _claude_active(ctx: Context) -> bool:
     try:
@@ -46,7 +48,10 @@ def available_modes(ctx: Context) -> tuple[str, ...]:
 
 def build_header(modes: tuple[str, ...], current: str) -> str:
     tabs = [f"[{m.upper()}]" if m == current else f" {m.upper()} " for m in modes]
-    return " │ ".join(tabs)
+    header = " │ ".join(tabs)
+    if current == "claude":
+        header += "\n" + _CLAUDE_WARNING
+    return header
 
 
 def build_opener_line(names: list[str], current_idx: int) -> str:

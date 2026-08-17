@@ -175,7 +175,13 @@ workforest tui    [MODE]
 workforest init   [--local]
 workforest config [--json]
 workforest shell-init [bash|zsh]
+workforest claude copy-session SESSION_ID   # experimental
 ```
+
+`workforest claude` (shown only when `~/.claude` exists) copies a Claude
+Code session from the main worktree into the current one. It is
+**experimental**: it manipulates Claude Code's private on-disk state,
+which is not a stable interface, so any Claude Code update may break it.
 
 Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config error.
 Human messages go to stderr; stdout carries only machine output (`cd`

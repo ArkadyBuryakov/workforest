@@ -17,6 +17,10 @@ class TestPureHelpers:
         header = tui.build_header(("create", "open"), "open")
         assert header == " CREATE  │ [OPEN]"
 
+    def test_header_warns_in_claude_mode(self) -> None:
+        header = tui.build_header(("create", "claude"), "claude")
+        assert header == " CREATE  │ [CLAUDE]\n" + tui._CLAUDE_WARNING
+
     def test_opener_line_marks_current(self) -> None:
         line = tui.build_opener_line(["edit", "shell"], 0)
         assert line == "  [edit] |  shell "

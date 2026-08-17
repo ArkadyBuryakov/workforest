@@ -204,7 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_handle_tui)
 
     if _claude_available():
-        p = sub.add_parser("claude", help="Claude Code integration")
+        p = sub.add_parser(
+            "claude",
+            help="Claude Code integration (experimental: may break on any Claude Code update)",
+        )
         claude_sub = p.add_subparsers(dest="claude_command", required=True)
         cp = claude_sub.add_parser(
             "copy-session", help="copy a session from the main worktree into this one"
