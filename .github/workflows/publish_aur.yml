@@ -12,7 +12,7 @@ jobs:
       name: aur
       url: https://aur.archlinux.org/packages/workforest
     permissions:
-      contents: write  # commit the generated PKGBUILD back to main
+      contents: read
     steps:
       - name: Install system dependencies
         run: >
@@ -21,15 +21,15 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Update PKGBUILD to released version
+      - name: Render PKGBUILD from template
         run: |
           version="${GITHUB_REF_NAME#v}"
           cd packaging/AUR
-          sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed "s/@VERSION@/$version/g" PKGBUILD.template > PKGBUILD
           # makepkg refuses to run as root
           useradd -m builder
           chown -R builder .
+          # updpkgsums replaces the @SHA256@ placeholder with the real checksum
           runuser -u builder -- updpkgsums
           runuser -u builder -- sh -c 'makepkg --printsrcinfo > .SRCINFO'
 
@@ -69,25 +69,4 @@ jobs:
           else
             git commit -m "Update to $version"
             git push origin HEAD:master
-          fi
-
-      - name: Commit generated PKGBUILD back to main
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          cp packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO /tmp/
-          # The workspace is created by the host runner under a different UID
-          # than the container's root, so git rejects it without this.
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # The workflow runs detached at the release tag; move to main to commit.
-          # -f discards the in-place edits we just copied to /tmp; build
-          # artifacts in packaging/AUR are untracked and never git-added.
-          git fetch origin main
-          git checkout -f -B main origin/main
-          cp /tmp/PKGBUILD /tmp/.SRCINFO packaging/AUR/
-          git add packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO
-          if git diff --cached --quiet; then
-            echo "Repo copy already up to date."
-          else
-            git commit -m "Update PKGBUILD to $version"
-            git push origin main
           fi

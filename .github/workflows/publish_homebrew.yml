@@ -18,19 +18,19 @@ jobs:
       name: homebrew-tap
       url: https://github.com/ArkadyBuryakov/homebrew-tap
     permissions:
-      contents: write  # commit the generated formula back to main
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update formula to released version
+      - name: Render formula from template
         run: |
           version="${RELEASE_VERSION#v}"
           url="https://github.com/ArkadyBuryakov/workforest/archive/v$version.tar.gz"
           curl -fsSL "$url" -o /tmp/workforest.tar.gz
           sha256=$(shasum -a 256 /tmp/workforest.tar.gz | cut -d' ' -f1)
           cd packaging/homebrew
-          sed -i '' "s|^  url .*|  url \"$url\"|" workforest.rb
-          sed -i '' "s|^  sha256 .*|  sha256 \"$sha256\"|" workforest.rb
+          sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha256/g" \
+            workforest.rb.template > workforest.rb
 
       - name: Build, test, and smoke test
         run: |
@@ -74,29 +74,3 @@ jobs:
             git commit -m "workforest $version"
             git push origin main
           fi
-
-      - name: Commit generated formula back to main
-        run: |
-          version="${RELEASE_VERSION#v}"
-          cp packaging/homebrew/workforest.rb /tmp/workforest.rb
-          git config --global user.name "Arkady Buryakov"
-          git config --global user.email "arkady@buryakov.pro"
-          # The workflow runs detached at the release tag; move to main to
-          # commit. Retry because the AUR publisher pushes to main from the
-          # same release event and the two can race.
-          for attempt in 1 2 3; do
-            git fetch origin main
-            git checkout -f -B main origin/main
-            cp /tmp/workforest.rb packaging/homebrew/workforest.rb
-            git add packaging/homebrew/workforest.rb
-            if git diff --cached --quiet; then
-              echo "Repo copy already up to date."
-              break
-            fi
-            git commit -m "Update Homebrew formula to $version"
-            if git push origin main; then
-              break
-            fi
-            echo "Push raced with another workflow, retrying ($attempt)..."
-            sleep 10
-          done

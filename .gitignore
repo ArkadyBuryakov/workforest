@@ -13,9 +13,12 @@ build/
 .coverage
 htmlcov/
 
-# Packaging artifacts
+# Packaging artifacts (rendered from *.template at release time)
 *.pkg.tar.zst
 pkg/
+packaging/AUR/PKGBUILD
+packaging/AUR/.SRCINFO
+packaging/homebrew/workforest.rb
 
 # Tooling config
 .workforest.yaml

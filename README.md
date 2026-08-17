@@ -180,12 +180,13 @@ make install      # install this checkout as a uv tool (~/.local/bin/workforest)
 make uninstall    # remove it again
 ```
 
-Packaging recipes live under `packaging/` (one directory per package
-manager: `packaging/AUR/`, `packaging/homebrew/`).
-Release: bump `__version__` and push to main — CI tags the release and
-publishes to PyPI, the AUR, and the
-[Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap), committing
-the regenerated recipes back to the repo.
+Packaging templates live under `packaging/` (one directory per package
+manager: `packaging/AUR/`, `packaging/homebrew/`); the `@VERSION@` and
+`@SHA256@` placeholders are filled in at release time.
+Release: bump `__version__` and push to main — CI tags the release,
+renders the templates, and publishes to PyPI, the AUR, and the
+[Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
+published AUR package and tap are the only places rendered recipes exist.
 
 ## License
 
