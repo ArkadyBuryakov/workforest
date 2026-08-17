@@ -116,7 +116,9 @@ word-splits into multiple arguments, while `{x}` — `{worktree}`, `{target}`,
 Openers run with the worktree root as working directory; in
 `window_command` the resolved opener command is additionally available as
 `$WF_COMMAND` (spliced into argv words) or `{command}` (one argument, for
-`$SHELL -c` wrappers).
+`$SHELL -c` wrappers). Spawned windows shed activation state inherited from
+the invoking shell (Python venv, conda, nvm, rvm) so the new session starts
+clean instead of carrying an environment it cannot deactivate.
 
 Fully commented reference configs:
 [`config.yaml`](src/workforest/examples/config.yaml) (user/system) and

@@ -1,5 +1,6 @@
 """launch: opener/window template resolution and the cd protocol."""
 
+import os
 import shlex
 from pathlib import Path
 
@@ -101,6 +102,61 @@ class TestTemplateExpansion:
         )
 
 
+class TestScrubActivationState:
+    def test_venv_vars_and_path_entry_removed(self) -> None:
+        env = {
+            "VIRTUAL_ENV": "/repo/.venv",
+            "VIRTUAL_ENV_PROMPT": "(.venv)",
+            "PATH": "/repo/.venv/bin:/usr/local/bin:/usr/bin",
+            "HOME": "/home/u",
+        }
+        assert launch.scrub_activation_state(env) == {
+            "PATH": "/usr/local/bin:/usr/bin",
+            "HOME": "/home/u",
+        }
+
+    def test_clean_environment_untouched(self) -> None:
+        env = {"PATH": "/usr/local/bin:/usr/bin", "HOME": "/home/u", "WF_BRANCH": "feat"}
+        assert launch.scrub_activation_state(env) == env
+
+    def test_conda_including_stacked_prefixes(self) -> None:
+        env = {
+            "CONDA_PREFIX": "/opt/conda/envs/proj",
+            "CONDA_PREFIX_1": "/opt/conda",
+            "CONDA_DEFAULT_ENV": "proj",
+            "CONDA_SHLVL": "2",
+            "CONDA_PROMPT_MODIFIER": "(proj) ",
+            "PATH": "/opt/conda/envs/proj/bin:/opt/conda/bin:/opt/conda/condabin:/usr/bin",
+        }
+        # condabin survives so `conda` itself keeps working in the window.
+        assert launch.scrub_activation_state(env) == {
+            "PATH": "/opt/conda/condabin:/usr/bin",
+        }
+
+    def test_nvm_bin_is_itself_the_path_entry(self) -> None:
+        env = {
+            "NVM_BIN": "/home/u/.nvm/versions/node/v22.0.0/bin",
+            "NVM_INC": "/home/u/.nvm/versions/node/v22.0.0/include/node",
+            "PATH": "/home/u/.nvm/versions/node/v22.0.0/bin:/usr/bin",
+        }
+        assert launch.scrub_activation_state(env) == {"PATH": "/usr/bin"}
+
+    def test_rvm_ruby(self) -> None:
+        env = {
+            "GEM_HOME": "/home/u/.rvm/gems/ruby-3.3.0",
+            "GEM_PATH": "/home/u/.rvm/gems/ruby-3.3.0:/home/u/.rvm/gems/ruby-3.3.0@global",
+            "MY_RUBY_HOME": "/home/u/.rvm/rubies/ruby-3.3.0",
+            "RUBY_VERSION": "ruby-3.3.0",
+            "PATH": (
+                "/home/u/.rvm/gems/ruby-3.3.0/bin:/home/u/.rvm/rubies/ruby-3.3.0/bin:/usr/bin"
+            ),
+        }
+        assert launch.scrub_activation_state(env) == {"PATH": "/usr/bin"}
+
+    def test_missing_path_is_fine(self) -> None:
+        assert launch.scrub_activation_state({"VIRTUAL_ENV": "/repo/.venv"}) == {}
+
+
 def run_launch(
     cfg: Config,
     tmp_path: Path,
@@ -185,6 +241,16 @@ class TestLaunch:
         _, worktree = run_launch(cfg, tmp_path, opener_arg="x")
         (line,) = recorder.wait_for_lines(1)
         assert f"wf_worktree={worktree}" in line
+
+    def test_window_process_sheds_inherited_venv(
+        self, tmp_path: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / ".venv"))
+        monkeypatch.setenv("PATH", f"{tmp_path / '.venv' / 'bin'}:{os.environ['PATH']}")
+        cfg = Config(window_command=f"{recorder.path} $WF_COMMAND")
+        run_launch(cfg, tmp_path, opener_arg="x")
+        (line,) = recorder.wait_for_lines(1)
+        assert line.endswith("virtual_env=")
 
     def test_empty_window_command_after_expansion(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
