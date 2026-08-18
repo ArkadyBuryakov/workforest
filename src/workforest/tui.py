@@ -67,14 +67,20 @@ def mode_has_opener(mode: str) -> bool:
     return mode in ("create", "open")
 
 
-def opener_carousel(ctx: Context) -> list[tuple[str, str | None]]:
-    """(label, opener_arg) pairs: config `openers` keys, or the derived
-    fallback pair — default opener and $SHELL (DESIGN §3.4)."""
+@dataclass(slots=True, frozen=True)
+class Opener:
+    label: str
+    arg: str | None  # what cmd_create/cmd_open get as `opener`; None = default
+
+
+def opener_carousel(ctx: Context) -> list[Opener]:
+    """Config `openers` keys, or the derived fallback pair — default opener
+    and $SHELL (DESIGN §3.4)."""
     if ctx.config.openers:
-        return [(name, name) for name in ctx.config.openers]
-    entries: list[tuple[str, str | None]] = [("edit", None)]
+        return [Opener(name, name) for name in ctx.config.openers]
+    entries = [Opener("edit", None)]
     if shell := os.environ.get("SHELL"):
-        entries.append(("shell", shell))
+        entries.append(Opener("shell", shell))
     return entries
 
 
@@ -86,7 +92,7 @@ def candidates(ctx: Context, mode: str) -> list[str]:
             from workforest.integrations import claude
 
             return [
-                f"{sid}\t{desc}" for sid, desc in claude.list_new_sessions(ctx.main, ctx.cwd_root)
+                f"{s.id}\t{s.description}" for s in claude.list_new_sessions(ctx.main, ctx.cwd_root)
             ]
         case _:
             return [w.name for w in commands.managed_worktrees(ctx)]
@@ -182,7 +188,7 @@ def run(initial_mode: str | None = None) -> CommandResult:  # pragma: no cover -
     while True:
         carousel = opener_carousel(ctx)
         opener_line = (
-            build_opener_line([label for label, _ in carousel], opener_idx)
+            build_opener_line([o.label for o in carousel], opener_idx)
             if mode_has_opener(mode)
             else None
         )
@@ -206,7 +212,7 @@ def run(initial_mode: str | None = None) -> CommandResult:  # pragma: no cover -
                 selection = result.selection or (result.query if mode == "create" else "")
                 if not selection:
                     continue
-                opener_arg = carousel[opener_idx][1] if mode_has_opener(mode) else None
+                opener_arg = carousel[opener_idx].arg if mode_has_opener(mode) else None
                 outcome = _execute(ctx, mode, selection, opener_arg)
                 if mode == "delete":
                     continue  # bulk cleanup: stay in the loop

@@ -93,4 +93,4 @@ def _claude_sessions() -> list[str]:
     ctx = commands.build_context()
     if ctx.cwd_root == ctx.main:
         return []
-    return [sid for sid, _ in claude.list_new_sessions(ctx.main, ctx.cwd_root)]
+    return [s.id for s in claude.list_new_sessions(ctx.main, ctx.cwd_root)]

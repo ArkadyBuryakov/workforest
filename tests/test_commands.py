@@ -396,4 +396,5 @@ class TestConfigShow:
         assert isinstance(out, str)
         data = json.loads(out)
         assert data["config"]["opener"] == "proj"
-        assert data["sources"][0][0] == "project"
+        assert data["sources"][0]["layer"] == "project"
+        assert data["sources"][0]["path"].endswith(".workforest.yaml")

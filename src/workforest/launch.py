@@ -26,16 +26,26 @@ from workforest.errors import WorkforestError
 
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 
-# Shell-session activation state that must not leak into a spawned window:
-# (prefix variable, bin subdirs under it that activation put on PATH,
-# companion variables set alongside it). An empty subdir means the prefix
-# variable is itself the PATH entry.
-_ACTIVATION_STATE: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    ("VIRTUAL_ENV", ("bin", "Scripts"), ("VIRTUAL_ENV_PROMPT",)),
-    ("CONDA_PREFIX", ("bin",), ("CONDA_DEFAULT_ENV", "CONDA_PROMPT_MODIFIER", "CONDA_SHLVL")),
-    ("NVM_BIN", ("",), ("NVM_INC",)),
-    ("GEM_HOME", ("bin",), ("GEM_PATH",)),
-    ("MY_RUBY_HOME", ("bin",), ("RUBY_VERSION",)),
+
+@dataclass(slots=True, frozen=True)
+class _Activation:
+    """One tool's shell-session activation state that must not leak into a
+    spawned window. An empty bin subdir means the prefix variable is itself
+    the PATH entry."""
+
+    prefix_var: str
+    bin_subdirs: tuple[str, ...]  # subdirs under the prefix that activation put on PATH
+    companion_vars: tuple[str, ...]  # variables set alongside the prefix
+
+
+_ACTIVATION_STATE = (
+    _Activation("VIRTUAL_ENV", ("bin", "Scripts"), ("VIRTUAL_ENV_PROMPT",)),
+    _Activation(
+        "CONDA_PREFIX", ("bin",), ("CONDA_DEFAULT_ENV", "CONDA_PROMPT_MODIFIER", "CONDA_SHLVL")
+    ),
+    _Activation("NVM_BIN", ("",), ("NVM_INC",)),
+    _Activation("GEM_HOME", ("bin",), ("GEM_PATH",)),
+    _Activation("MY_RUBY_HOME", ("bin",), ("RUBY_VERSION",)),
 )
 _CONDA_STACK = re.compile(r"CONDA_PREFIX_\d+")
 
@@ -156,12 +166,14 @@ def scrub_activation_state(env: dict[str, str]) -> dict[str, str]:
     """
     env = dict(env)
     stale_dirs: set[str] = set()
-    for var, subdirs, companions in _ACTIVATION_STATE:
-        prefix = env.pop(var, None)
-        for name in companions:
+    for activation in _ACTIVATION_STATE:
+        prefix = env.pop(activation.prefix_var, None)
+        for name in activation.companion_vars:
             env.pop(name, None)
         if prefix:
-            stale_dirs.update(str(Path(prefix) / sub) if sub else prefix for sub in subdirs)
+            stale_dirs.update(
+                str(Path(prefix) / sub) if sub else prefix for sub in activation.bin_subdirs
+            )
     for var in [name for name in env if _CONDA_STACK.fullmatch(name)]:
         stale_dirs.add(str(Path(env.pop(var)) / "bin"))
     path = env.get("PATH")

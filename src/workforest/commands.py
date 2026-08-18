@@ -62,14 +62,20 @@ def short_branch_name(branch: str) -> str:
     return branch.rsplit("/", 1)[-1]
 
 
-def _resolve_branch(ctx: Context, spec: str) -> tuple[str, str | None]:
-    """Resolve BRANCH or REMOTE/BRANCH to (local branch, remote ref to track).
+@dataclass(slots=True, frozen=True)
+class ResolvedBranch:
+    branch: str  # local branch name
+    track: str | None  # remote ref the branch should track, if any
+
+
+def _resolve_branch(ctx: Context, spec: str) -> ResolvedBranch:
+    """Resolve BRANCH or REMOTE/BRANCH to a local branch and its remote ref.
 
     Precedence: exact local branch, explicit REMOTE/BRANCH, a branch known to
     exactly one remote; anything else names a new local branch.
     """
     if gitutil.branch_exists(spec, ctx.main):
-        return spec, None
+        return ResolvedBranch(spec, track=None)
     remote_map = gitutil.remote_branches(ctx.main)
     for remote in sorted(gitutil.remotes(ctx.main), key=len, reverse=True):
         branch = spec.removeprefix(f"{remote}/")
@@ -87,14 +93,14 @@ def _resolve_branch(ctx: Context, spec: str) -> tuple[str, str | None]:
             branch = output.ask(f"branch {branch!r} already exists locally; local name for {spec}:")
             if not branch:
                 raise CancelledError("cancelled")
-        return branch, spec
+        return ResolvedBranch(branch, track=spec)
     carriers = remote_map.get(spec, [])
     if len(carriers) > 1:
         raise WorkforestError(
             f"branch {spec!r} exists on multiple remotes ({', '.join(carriers)}); "
             f"pick one, e.g. `wf create {carriers[0]}/{spec}`"
         )
-    return spec, f"{carriers[0]}/{spec}" if carriers else None
+    return ResolvedBranch(spec, track=f"{carriers[0]}/{spec}" if carriers else None)
 
 
 def _script_env(ctx: Context, worktree: Path, branch: str | None) -> dict[str, str]:
@@ -119,7 +125,8 @@ def cmd_create(
         branch = gitutil.current_branch(ctx.cwd_root)
         if branch == "HEAD":
             raise WorkforestError("detached HEAD: specify a branch name")
-    branch, track = _resolve_branch(ctx, branch)
+    resolved = _resolve_branch(ctx, branch)
+    branch = resolved.branch
 
     existing = gitutil.find_branch_worktree(branch, ctx.main)
     if existing is not None:
@@ -138,7 +145,7 @@ def cmd_create(
         if worktree_path.exists():
             raise WorkforestError(f"directory exists but is not a worktree: {worktree_path}")
         ctx.worktrees_dir.mkdir(parents=True, exist_ok=True)
-        gitutil.worktree_add(ctx.main, worktree_path, branch, track=track)
+        gitutil.worktree_add(ctx.main, worktree_path, branch, track=resolved.track)
         output.success(f"created worktree for {branch!r} at {worktree_path}")
         if not no_hooks:
             env = _script_env(ctx, worktree_path, branch)
@@ -312,13 +319,13 @@ def cmd_config_show(*, as_json: bool = False) -> CommandResult:
         config = ctx.config
     except NotARepoError:
         config = load_config(None)
-    sources = [(layer, str(path)) for layer, path in config.sources]
     if as_json:
+        sources = [{"layer": s.layer, "path": str(s.path)} for s in config.sources]
         return json.dumps({"config": config.as_dict(), "sources": sources}, indent=2)
     dump = yaml.safe_dump(config.as_dict(), sort_keys=False).rstrip("\n")
     lines = [dump, "", "# sources (low -> high):"]
-    if sources:
-        lines.extend(f"#   {layer}: {path}" for layer, path in sources)
+    if config.sources:
+        lines.extend(f"#   {s.layer}: {s.path}" for s in config.sources)
     else:
         lines.append("#   (built-in defaults only)")
     return "\n".join(lines)

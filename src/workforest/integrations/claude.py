@@ -11,6 +11,7 @@ parsing, never by string substitution.
 
 import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,12 @@ from workforest import gitutil, output
 from workforest.errors import WorkforestError
 
 _DESCRIPTION_LIMIT = 80
+
+
+@dataclass(slots=True, frozen=True)
+class Session:
+    id: str
+    description: str
 
 
 def claude_dir() -> Path:
@@ -49,8 +56,8 @@ def _history_entries() -> list[dict[str, Any]]:
     return entries
 
 
-def list_sessions(main: Path) -> list[tuple[str, str]]:
-    """(session_id, description) pairs for the main worktree's project."""
+def list_sessions(main: Path) -> list[Session]:
+    """Sessions of the main worktree's project, with history descriptions."""
     directory = project_dir(main)
     if not directory.is_dir():
         return []
@@ -69,16 +76,16 @@ def list_sessions(main: Path) -> list[tuple[str, str]]:
         if len(text) > _DESCRIPTION_LIMIT:
             text = text[: _DESCRIPTION_LIMIT - 3] + "..."
         descriptions[session_id] = text
-    return [(sid, descriptions.get(sid, "(no description)")) for sid in session_ids]
+    return [Session(sid, descriptions.get(sid, "(no description)")) for sid in session_ids]
 
 
-def list_new_sessions(main: Path, current: Path) -> list[tuple[str, str]]:
+def list_new_sessions(main: Path, current: Path) -> list[Session]:
     """Sessions not yet copied into the current worktree's project dir."""
     current_dir = project_dir(current)
     return [
-        (sid, desc)
-        for sid, desc in list_sessions(main)
-        if not (current_dir / f"{sid}.jsonl").is_file()
+        session
+        for session in list_sessions(main)
+        if not (current_dir / f"{session.id}.jsonl").is_file()
     ]
 
 

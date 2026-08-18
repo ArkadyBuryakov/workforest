@@ -54,17 +54,18 @@ class TestCarousel:
     def test_config_openers_win(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
         ctx.config = Config(openers={"edit": "$EDITOR {target}", "git": "lazygit"})
-        assert tui.opener_carousel(ctx) == [("edit", "edit"), ("git", "git")]
+        assert tui.opener_carousel(ctx) == [tui.Opener("edit", "edit"), tui.Opener("git", "git")]
 
     def test_derived_fallback_pair(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
         # SHELL is pinned to /bin/sh by the isolation fixture
-        assert tui.opener_carousel(ctx) == [("edit", None), ("shell", "/bin/sh")]
+        expected = [tui.Opener("edit", None), tui.Opener("shell", "/bin/sh")]
+        assert tui.opener_carousel(ctx) == expected
 
     def test_fallback_without_shell(self, repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("SHELL")
         ctx = commands.build_context(repo.path)
-        assert tui.opener_carousel(ctx) == [("edit", None)]
+        assert tui.opener_carousel(ctx) == [tui.Opener("edit", None)]
 
 
 class TestModesAndCandidates:
