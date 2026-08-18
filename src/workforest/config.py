@@ -1,6 +1,6 @@
 """Configuration: schema, layered loading, merging, template resolution.
 
-Layers (low → high, DESIGN §4.1): built-in defaults → system → user →
+Layers (low → high): built-in defaults → system → user →
 project-shared (main worktree root) → project-local (.vscode/ then .idea/) →
 environment → CLI flags (applied by commands, not here).
 """
@@ -180,7 +180,7 @@ def load_config(main_worktree: Path | None = None) -> Config:
 
 
 def template_vars(main_worktree: Path) -> dict[str, str]:
-    """The WF_* family as template variables (DESIGN §3.5/§3.6)."""
+    """The WF_* family as template variables."""
     return {
         "WF_MAIN": str(main_worktree),
         "WF_NAME": main_worktree.name,

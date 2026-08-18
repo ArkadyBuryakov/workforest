@@ -1,5 +1,5 @@
 """argparse front-end: shortcut dispatch, error → exit-code mapping, and the
-sole writer to stdout (DESIGN §3.3/§5)."""
+sole writer to stdout."""
 
 import argparse
 import os
@@ -32,7 +32,7 @@ SUBCOMMANDS = frozenset(SUBCOMMAND_HELP) - {"claude"}  # claude is feature-gated
 
 
 def _claude_available() -> bool:
-    """Feature gate (DESIGN §3.7): the integration is invisible without
+    """Feature gate: the integration is invisible without
     ~/.claude. Filesystem check only — core never imports the integration."""
     return (Path.home() / ".claude").is_dir()
 

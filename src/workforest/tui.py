@@ -5,7 +5,7 @@ Mode tabs (←/→, alt-h/alt-l), an opener carousel for CREATE/OPEN
 branch), Esc quits, DELETE stays in the loop for bulk cleanup.
 
 Everything except the fzf subprocess itself is pure and unit-tested; fzf is
-the one sanctioned external tool here (DESIGN §6.2).
+the one sanctioned external tool here.
 """
 
 import os
@@ -75,7 +75,7 @@ class Opener:
 
 def opener_carousel(ctx: Context) -> list[Opener]:
     """Config `openers` keys, or the derived fallback pair — default opener
-    and $SHELL (DESIGN §3.4)."""
+    and $SHELL."""
     if ctx.config.openers:
         return [Opener(name, name) for name in ctx.config.openers]
     entries = [Opener("edit", None)]

@@ -1,5 +1,5 @@
 """Claude Code session integration: copy a session from the main worktree's
-project dir into the current worktree's, rewriting cwd fields (DESIGN §3.7).
+project dir into the current worktree's, rewriting cwd fields.
 
 EXPERIMENTAL: this reads and writes Claude Code's private on-disk state
 (~/.claude/projects layout, session .jsonl format, history.jsonl), none of

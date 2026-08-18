@@ -1,6 +1,6 @@
 """Typed subprocess wrappers around git plumbing.
 
-The only module that spawns git (DESIGN §5). Consumers get typed results;
+The only module that spawns git. Consumers get typed results;
 worktree data comes from `--porcelain -z` output, never from parsing the
 human-readable form.
 """

@@ -1,5 +1,5 @@
 """Core commands. Each returns a ShellAction (stdout directive), a str
-(stdout text), or None — cli.py is the sole stdout writer (DESIGN §5)."""
+(stdout text), or None — cli.py is the sole stdout writer."""
 
 import importlib.resources
 import json
@@ -42,8 +42,8 @@ def build_context(cwd: Path | None = None) -> Context:
 
 
 def managed_worktrees(ctx: Context) -> list[gitutil.Worktree]:
-    """Worktrees located directly inside the resolved worktrees dir
-    (DESIGN §3.5) — the only ones we list, complete, or delete."""
+    """Worktrees located directly inside the resolved worktrees dir —
+    the only ones we list, complete, or delete."""
     return [
         worktree
         for worktree in gitutil.list_worktrees(ctx.main)

@@ -1,6 +1,6 @@
 """Creation hooks (symlinks, setup scripts) and named-script execution.
 
-Scripts get exactly one environment variable family, WF_* (DESIGN §3.6), and
+Scripts get exactly one environment variable family, WF_*, and
 run via $SHELL -c (sh -c fallback). Their stdout is routed to our stderr so
 the cd protocol on stdout stays clean.
 """

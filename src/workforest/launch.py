@@ -1,4 +1,4 @@
-"""Opener/window template resolution and cd-protocol emission (DESIGN §3.4).
+"""Opener/window template resolution and cd-protocol emission.
 
 No tool names appear here: what to run comes from config templates and the
 $VISUAL/$EDITOR contract; where to run it is the current shell (ShellAction)
@@ -83,7 +83,7 @@ def launch_vars(
     branch: str | None,
     target: str,
 ) -> dict[str, str]:
-    """The full WF_* family for a launch (DESIGN §3.5/§3.6): the scripts'
+    """The full WF_* family for a launch: the scripts'
     structural five plus the launch-only WF_TARGET and WF_TITLE."""
     return {
         "WF_MAIN": str(main),
@@ -191,7 +191,7 @@ def spawn_window(
     command: str,
     cwd: Path,
 ) -> None:
-    """Spawn the user's window_command fully detached (DESIGN §3.4).
+    """Spawn the user's window_command fully detached.
 
     The resolved opener command joins the family as {command} (one argument,
     e.g. for `$SHELL -c {command}`) / `$WF_COMMAND` (spliced into argv words);

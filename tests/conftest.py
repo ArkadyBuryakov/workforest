@@ -99,7 +99,7 @@ class Repo:
 
 @pytest.fixture
 def make_repo(tmp_path: Path) -> Callable[..., Repo]:
-    """Factory for real git repos under tmp_path (DESIGN §7.3 layer 2)."""
+    """Factory for real git repos under tmp_path."""
 
     def _make(name: str = "api", *, origin: bool = False) -> Repo:
         path = tmp_path / "dev" / name
