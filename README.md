@@ -1,5 +1,13 @@
 # Workforest
 
+## Elevator pitch
+
+Your repo has one working directory; your AI agents want five. Workforest
+gives every feature — and every agent — its own disposable git worktree, so
+parallel work on the same repo never collides.
+
+## About
+
 Git worktree forest management: one main checkout plus any number of
 disposable, per-branch worktrees in a predictable location — created, set up,
 opened, and cleaned up with one command.
