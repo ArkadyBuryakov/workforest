@@ -123,6 +123,18 @@ class TestWfFunction:
         assert result.returncode == 0, result.stderr
         assert result.stdout.startswith("feat\tfeat\t")
 
+    def test_wf_never_evals_data_output(self, shell: str, repo: Repo) -> None:
+        """Regression: a worktree named `cd` makes `wf list` lines start with
+        "cd " — the directive sentinel, not the text, decides what is eval'd."""
+        ctx = commands.build_context(repo.path)
+        commands.cmd_create(ctx, "cd", no_open=True)
+        script = f'eval "$(workforest shell-init {shell})"\nwf list\npwd\n'
+        result = run_shell(shell, script, cwd=repo.path)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert lines[0].startswith("cd ")  # listing passed through as data
+        assert lines[-1] == str(repo.path)  # and the shell did not move
+
     def test_wf_propagates_failure(self, shell: str, repo: Repo) -> None:
         script = f'eval "$(workforest shell-init {shell})"\nwf open ghost\n'
         result = run_shell(shell, script, cwd=repo.path)

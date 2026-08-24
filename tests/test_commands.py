@@ -191,13 +191,14 @@ class TestOpen:
         assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
         assert "WF_TARGET=src" in action.script
 
-    def test_open_file_with_target_template(self, repo: Repo) -> None:
+    def test_open_file_with_target_variable(self, repo: Repo) -> None:
         ctx = ctx_for(repo)
         commands.cmd_create(ctx, "feat", no_open=True)
-        action = commands.cmd_open(ctx, "feat", opener="tool {target}", path_arg="README.md")
+        action = commands.cmd_open(ctx, "feat", opener='tool "$WF_TARGET"', path_arg="README.md")
         assert isinstance(action, ShellAction)
         assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
-        assert action.script.endswith(" tool README.md")
+        assert action.script.endswith(""" /bin/sh -c 'tool "$WF_TARGET"'""")
+        assert "WF_TARGET=README.md" in action.script
 
     def test_open_unknown_errors(self, repo: Repo) -> None:
         with pytest.raises(WorkforestError, match="'nope' not found"):
@@ -206,6 +207,14 @@ class TestOpen:
     def test_open_without_name_is_usage_error(self, repo: Repo) -> None:
         with pytest.raises(UsageError, match="name required"):
             commands.cmd_open(ctx_for(repo), None)
+
+    def test_open_without_name_inside_worktree_opens_it(self, repo: Repo) -> None:
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        inside = ctx_for(repo, cwd=ctx.worktrees_dir / "feat")
+        action = commands.cmd_open(inside, None)
+        assert isinstance(action, ShellAction)
+        assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
 
     def test_main_worktree_is_not_openable_by_name(self, repo: Repo) -> None:
         # main is not managed; only worktrees inside worktrees_dir resolve
@@ -291,6 +300,14 @@ class TestDelete:
         commands.cmd_create(ctx, "two", no_open=True)
         commands.cmd_delete(ctx, ["one", "two"])
         assert commands.managed_worktrees(ctx) == []
+
+    def test_typo_in_batch_deletes_nothing(self, repo: Repo) -> None:
+        # Every name resolves before anything is removed.
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        with pytest.raises(WorkforestError, match="'ghost' not found"):
+            commands.cmd_delete(ctx, ["feat", "ghost"])
+        assert (ctx.worktrees_dir / "feat").exists()
 
     def test_unknown_name(self, repo: Repo) -> None:
         with pytest.raises(WorkforestError, match="not found"):

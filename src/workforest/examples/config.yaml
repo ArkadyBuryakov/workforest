@@ -46,12 +46,11 @@ worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"
 #   $WF_TARGET          the -p argument           src/foo.py   (default ".")
 #   $WF_TITLE           window label              "project_name: feat-x"
 #
-# In `opener`/`openers`/`window_command` templates, workforest expands them
-# itself, in two forms:
-#   * $WF_X (and any $ENV var)  raw text — word-splits into multiple arguments
-#   * {x}   (e.g. {worktree})   the shell-quoted value of $WF_X — always
-#                               exactly ONE argument; use this unless you
-#                               specifically want splitting
+# `opener`/`openers`/`window_command` are plain shell commands, run via
+# `$SHELL -c` with the family exported — standard shell rules, no template
+# syntax of our own:
+#   * "$WF_X"   exactly ONE argument (use this unless you want splitting)
+#   * $WF_X     word-splits into multiple arguments
 # The launched process (editor, terminal, scripts they spawn) also receives
 # the family as real environment variables.
 #
@@ -64,8 +63,8 @@ worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"
 # ---------------------------------------------------------------------------
 # Default opener — what runs when you `wf create`/`wf open` without -o.
 #
-# Value is either a name from the `openers` mapping below, or a command
-# template used verbatim.
+# Value is either a name from the `openers` mapping below, or a shell
+# command used verbatim.
 #
 # Default: "" — falls back to $VISUAL, then $EDITOR, then errors out asking
 # you to set one. Workforest never assumes a specific editor.
@@ -73,15 +72,15 @@ worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"
 opener: ""
 
 # opener: edit          # a name defined in `openers`
-# opener: "$EDITOR {target}"   # or an inline template
+# opener: '$EDITOR "$WF_TARGET"'   # or an inline command
 
 # ---------------------------------------------------------------------------
-# Named openers — command templates for -o NAME, the shortcut form
+# Named openers — shell commands for -o NAME, the shortcut form
 # (`wf NAME <worktree>`), and the TUI opener carousel.
 #
-# Openers always run with the worktree root as working directory; {target}
-# ($WF_TARGET) is the -p argument, "." by default. A template without
-# {target} simply runs in the worktree.
+# Openers always run with the worktree root as working directory; $WF_TARGET
+# is the -p argument, "." by default. A command that ignores it simply runs
+# in the worktree.
 #
 # Default: {} — the TUI then falls back to two derived entries:
 # the default opener and $SHELL.
@@ -89,33 +88,41 @@ opener: ""
 openers: {}
 
 # openers:
-#   edit: "$EDITOR {target}"     # editors usually want the path argument
-#   shell: "$SHELL"              # just a shell in the worktree
-#   git: "lazygit"               # runs with cwd = worktree, no argument
-#   ide: "xdg-open {target}"     # hand off to the desktop default handler
+#   edit: '$EDITOR "$WF_TARGET"'    # editors usually want the path argument
+#   shell: "$SHELL"                 # just a shell in the worktree
+#   git: "lazygit"                  # runs with cwd = worktree, no argument
+#   ide: 'xdg-open "$WF_TARGET"'    # hand off to the desktop default handler
 #   agent: "claude"
 
 # ---------------------------------------------------------------------------
 # Window command — WHERE the opener runs.
 #
 # Default: "" — the opener runs in your current shell via the `wf` wrapper
-# (`cd <worktree> && WF_*=... <opener>`).
+# (`cd <worktree> && WF_*=... $SHELL -c '<opener>'`).
 #
-# Set a template to spawn a new terminal window / multiplexer pane instead.
-# The process is spawned fully detached. Besides the WF_* family, the
-# resolved opener command is available here as:
-#   $WF_COMMAND   spliced into separate argv words (most terminals)
-#   {command}     ONE argument — what `$SHELL -c` wrappers want
+# Set a shell command to spawn a new terminal window / multiplexer pane
+# instead. It is spawned fully detached; a command that dies right away is
+# reported with its stderr instead of failing silently. Besides the WF_*
+# family, the resolved opener command is available here as $WF_COMMAND —
+# still unexpanded, so run it through a shell of its own for its $WF_*
+# references to resolve: `$SHELL -c "$WF_COMMAND"`.
 #
 # This key is the environment-specific bit par excellence — it belongs in
 # your USER config, never in a project config.
 # ---------------------------------------------------------------------------
 window_command: ""
 
-# window_command: "kitty --title {title} --directory {worktree} $WF_COMMAND"
-# window_command: "foot --title={title} --working-directory={worktree} $WF_COMMAND"
-# window_command: "alacritty --title {title} --working-directory {worktree} -e $SHELL -c {command}"
-# window_command: "tmux new-window -c {worktree} -n {title} {command}"
+# window_command: kitty --title "$WF_TITLE" --directory "$WF_WORKTREE" $SHELL -c "$WF_COMMAND"
+# window_command: foot --title="$WF_TITLE" --working-directory="$WF_WORKTREE" $SHELL -c "$WF_COMMAND"
+# window_command: alacritty --title "$WF_TITLE" --working-directory "$WF_WORKTREE" -e $SHELL -c "$WF_COMMAND"
+#
+# tmux panes are created by the tmux SERVER, which does not inherit this
+# environment — pass the variables the opener (and its scripts) need with -e:
+# window_command: >-
+#   tmux new-window -n "$WF_TITLE" -c "$WF_WORKTREE"
+#   -e WF_MAIN="$WF_MAIN" -e WF_NAME="$WF_NAME" -e WF_WORKTREE="$WF_WORKTREE"
+#   -e WF_WORKTREES_DIR="$WF_WORKTREES_DIR" -e WF_BRANCH="$WF_BRANCH"
+#   -e WF_TARGET="$WF_TARGET" "$WF_COMMAND"
 
 # ---------------------------------------------------------------------------
 # Personal named scripts — available via `workforest run NAME` in every repo.

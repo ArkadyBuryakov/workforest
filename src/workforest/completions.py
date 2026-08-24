@@ -54,7 +54,7 @@ def _commands() -> list[str]:
     # An opener sharing a subcommand's name is shadowed by it (cli._preprocess
     # dispatches known subcommands first), so don't offer it.
     return [f"{name}\tcommand\t{SUBCOMMAND_HELP[name]}" for name in sorted(known)] + [
-        # collapse whitespace: a tab/newline in a template would break the line protocol
+        # collapse whitespace: a tab/newline in an opener command would break the line protocol
         f"{name}\topener\t{' '.join(openers[name].split())}"
         for name in sorted(openers)
         if name not in known

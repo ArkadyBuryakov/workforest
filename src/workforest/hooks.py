@@ -101,7 +101,10 @@ def exclude_from_git(worktree: Path, rel_paths: list[str]) -> None:
     lines = ["# Managed by workforest: symlinks from the `symlinks` config key"]
     global_excludes = gitutil.global_excludes_file()
     if global_excludes is not None and global_excludes.is_file():
-        lines.append(f"# --- inherited from global core.excludesFile: {global_excludes} ---")
+        lines.append(
+            f"# --- snapshot of global core.excludesFile ({global_excludes}), "
+            "taken at worktree creation; later edits there do not apply here ---"
+        )
         lines.append(global_excludes.read_text().rstrip("\n"))
         lines.append("# --- workforest symlinks ---")
     lines.extend(f"/{rel}" for rel in rel_paths)

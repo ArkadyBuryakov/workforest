@@ -3,13 +3,14 @@ sole writer to stdout."""
 
 import argparse
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any
 
 from workforest import __version__, commands, output
 from workforest.commands import CommandResult
-from workforest.errors import EXIT_CANCELLED, EXIT_OK, WorkforestError
+from workforest.errors import EXIT_OK, WorkforestError
 from workforest.launch import ShellAction
 
 # Single source for subcommand names and their one-line help: build_parser()
@@ -30,6 +31,11 @@ SUBCOMMAND_HELP: dict[str, str] = {
 
 SUBCOMMANDS = frozenset(SUBCOMMAND_HELP) - {"claude"}  # claude is feature-gated
 
+# Marks a stdout line as a directive for the wf shell wrapper to eval. The
+# unit-separator control byte cannot appear in data output (listings, dumps),
+# so the wrapper never mistakes data for something to execute.
+SHELL_DIRECTIVE_PREFIX = "\x1f"
+
 
 def _claude_available() -> bool:
     """Feature gate: the integration is invisible without
@@ -46,7 +52,7 @@ def _known_subcommands() -> frozenset[str]:
 def _emit(result: CommandResult) -> None:
     match result:
         case ShellAction(script=script):
-            print(script)
+            print(f"{SHELL_DIRECTIVE_PREFIX}{script}")
         case str() as text if text:
             print(text)
         case _:
@@ -142,9 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def opener_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("-o", "--opener", help="opener name or command template")
+        p.add_argument("-o", "--opener", help="opener name or shell command")
         p.add_argument(
-            "-p", "--path", help="path inside the worktree, passed to the opener as {target}"
+            "-p", "--path", help="path inside the worktree, passed to the opener as $WF_TARGET"
         )
 
     p = sub.add_parser("create", help=SUBCOMMAND_HELP["create"])
@@ -256,6 +262,12 @@ def main(argv: list[str] | None = None) -> int:
             raise
         output.error(str(exc))
         return exc.exit_code
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # pragma: no cover - terminates the process
+        # Die by SIGINT instead of exiting normally: a parent shell decides
+        # whether to abort a loop by how the child died (WIFSIGNALED), not by
+        # its exit code. Explicit prompt cancels still exit EXIT_CANCELLED.
         output.info("")
-        return EXIT_CANCELLED
+        sys.stderr.flush()
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGINT)
+        return 128 + signal.SIGINT  # not reached

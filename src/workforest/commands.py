@@ -3,6 +3,7 @@
 
 import importlib.resources
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -174,9 +175,14 @@ def cmd_open(
     opener: str | None = None,
     path_arg: str | None = None,
 ) -> CommandResult:
-    if not name:
-        raise UsageError("worktree name required")
-    worktree = find_managed(ctx, name)
+    if name:
+        worktree = find_managed(ctx, name)
+    else:
+        # No name, but standing in a managed worktree: that's the one.
+        current = next((w for w in managed_worktrees(ctx) if w.path == ctx.cwd_root), None)
+        if current is None:
+            raise UsageError("worktree name required (or run inside a managed worktree)")
+        worktree = current
     return launch.launch(
         ctx.config,
         main=ctx.main,
@@ -190,28 +196,25 @@ def cmd_open(
 
 def cmd_list(ctx: Context, *, porcelain: bool = False) -> CommandResult:
     worktrees = managed_worktrees(ctx)
-    if porcelain:
-        lines = [
-            "\t".join(
-                (
-                    w.name,
-                    w.branch or "",
-                    str(w.path),
-                    "1" if gitutil.status_porcelain(w.path) else "0",
-                )
-            )
-            for w in worktrees
-        ]
-        return "\n".join(lines)
     if not worktrees:
+        if porcelain:
+            return ""
         output.info(f"no worktrees in {ctx.worktrees_dir} (create one with: wf create BRANCH)")
         return None
+    # One `git status` per worktree; subprocess-bound, so run them together.
+    with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
+        dirty = list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
+    if porcelain:
+        return "\n".join(
+            "\t".join((w.name, w.branch or "", str(w.path), "1" if is_dirty else "0"))
+            for w, is_dirty in zip(worktrees, dirty, strict=True)
+        )
     name_width = max(len(w.name) for w in worktrees)
     branch_width = max(len(w.branch or "(detached)") for w in worktrees)
     rows = [
         f"{w.name:<{name_width}}  {w.branch or '(detached)':<{branch_width}}  "
-        f"{'dirty' if gitutil.status_porcelain(w.path) else 'clean'}  {w.path}"
-        for w in worktrees
+        f"{'dirty' if is_dirty else 'clean'}  {w.path}"
+        for w, is_dirty in zip(worktrees, dirty, strict=True)
     ]
     return "\n".join(rows)
 
@@ -241,12 +244,14 @@ def cmd_delete(
     delete_branch: bool | None = None,
 ) -> CommandResult:
     result: CommandResult = None
-    for name in names:
-        worktree = find_managed(ctx, name)
+    # Resolve every name first: a typo must fail the batch before anything
+    # is deleted, not strand it half-done.
+    worktrees = [find_managed(ctx, name) for name in names]
+    for worktree in worktrees:
         _confirm_dirty(worktree, "Delete anyway?", force=force)
         branch = worktree.branch
         gitutil.worktree_remove(ctx.main, worktree.path, force=True)
-        output.success(f"deleted worktree {name!r}")
+        output.success(f"deleted worktree {worktree.name!r}")
         if worktree.path == ctx.cwd_root:
             # The shell is standing in the directory we just removed —
             # move it back to the main checkout.

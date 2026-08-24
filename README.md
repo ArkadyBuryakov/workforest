@@ -96,17 +96,17 @@ All keys, with defaults:
 ```yaml
 worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"  # where the forest lives
 opener: ""              # default opener; "" → $VISUAL → $EDITOR
-openers: {}             # name -> command template, e.g. edit: "$EDITOR {target}"
-window_command: ""      # "" → current shell; or e.g.
-                        # "kitty --title {title} --directory {worktree} $WF_COMMAND"
+openers: {}             # name -> shell command, e.g. edit: '$EDITOR "$WF_TARGET"'
+window_command: ""      # "" → current shell; or e.g. kitty --title "$WF_TITLE"
+                        #   --directory "$WF_WORKTREE" $SHELL -c "$WF_COMMAND"
 symlinks: []            # untracked assets linked from main into new worktrees
 setup_scripts: []       # shell snippets run in a fresh worktree
 scripts: {}             # name -> snippet for `wf run NAME`
 ```
 
-Openers and `window_command` are command templates sharing one variable
-family, which the launched process (and every script) also receives as
-environment variables:
+Openers and `window_command` are plain shell commands, run via `$SHELL -c`
+with one variable family in the environment — the same family the launched
+process and every script receive:
 
 | Variable | Value |
 |---|---|
@@ -118,15 +118,17 @@ environment variables:
 | `WF_TARGET` | the `-p` argument, default `.` (launch-only) |
 | `WF_TITLE` | window label, `project_name: feat-x` (launch-only) |
 
-In templates, `$WF_X` (like any `$ENV` variable) inserts raw text that
-word-splits into multiple arguments, while `{x}` — `{worktree}`, `{target}`,
-`{title}`, … — inserts the shell-quoted value as exactly one argument.
-Openers run with the worktree root as working directory; in
-`window_command` the resolved opener command is additionally available as
-`$WF_COMMAND` (spliced into argv words) or `{command}` (one argument, for
-`$SHELL -c` wrappers). Spawned windows shed activation state inherited from
-the invoking shell (Python venv, conda, nvm, rvm) so the new session starts
-clean instead of carrying an environment it cannot deactivate.
+Standard shell rules apply — there is no workforest template syntax:
+`"$WF_X"` is exactly one argument, bare `$WF_X` word-splits, and `$$`,
+braces, pipes, and `&&` mean whatever your shell says they mean (a
+misspelled `$WF_VAR` expands to empty, as in any shell). Openers run with
+the worktree root as working directory. In `window_command` the resolved
+opener command is additionally available as `$WF_COMMAND` — still
+unexpanded, so run it through a shell of its own for its `$WF_*` references
+to resolve: `$SHELL -c "$WF_COMMAND"`. Spawned windows shed activation
+state inherited from the invoking shell (Python venv, conda, nvm, rvm) so
+the new session starts clean instead of carrying an environment it cannot
+deactivate.
 
 Fully commented reference configs:
 [`config.yaml`](src/workforest/examples/config.yaml) (user/system) and
@@ -177,6 +179,9 @@ workforest config [--json]
 workforest shell-init [bash|zsh]
 workforest claude copy-session SESSION_ID   # experimental
 ```
+
+`open` (and the opener shortcut, e.g. `wf edit`) without NAME opens the
+worktree you are standing in.
 
 `create` resolves BRANCH in order: existing local branch, then a branch on
 exactly one remote (checked out tracking it), then a brand-new branch.
