@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from workforest import config as config_mod
-from workforest.config import Config, load_config, resolve_worktrees_dir
+from workforest.config import (
+    CommandSpec,
+    Config,
+    OpenerSpec,
+    load_config,
+    resolve_worktrees_dir,
+)
 from workforest.errors import ConfigError
 
 
@@ -37,7 +43,7 @@ class TestDefaults:
         assert cfg.worktrees_dir == "$WF_MAIN/../worktrees/$WF_NAME"
         assert cfg.opener == ""
         assert cfg.openers == {}
-        assert cfg.window_command == ""
+        assert cfg.wrappers == {}
         assert cfg.symlinks == []
         assert cfg.setup_scripts == []
         assert cfg.scripts == {}
@@ -46,7 +52,7 @@ class TestDefaults:
 
 class TestLayering:
     def test_precedence_system_user_project_local(self, tmp_path: Path) -> None:
-        write_system_config("opener: system\nwindow_command: from-system\n")
+        write_system_config("opener: system\nwrappers:\n  win: from-system\n")
         write_user_config("opener: user\n")
         project = make_project(tmp_path)
         (project / ".workforest.yaml").write_text("opener: project\n")
@@ -56,7 +62,7 @@ class TestLayering:
         cfg = load_config(project)
         assert cfg.opener == "local"
         # keys not set by higher layers survive from lower ones
-        assert cfg.window_command == "from-system"
+        assert cfg.wrappers == {"win": CommandSpec("from-system")}
         assert [s.layer for s in cfg.sources] == [
             "system",
             "user",
@@ -129,40 +135,160 @@ class TestMergeSemantics:
         assert load_config(project).scripts == {}
 
     def test_openers_merge_like_scripts(self, tmp_path: Path) -> None:
-        write_system_config("openers:\n  edit: $EDITOR {target}\n")
+        write_system_config('openers:\n  edit: $EDITOR "$WF_TARGET"\n')
         write_user_config("openers:\n  git: lazygit\n")
         cfg = load_config()
-        assert cfg.openers == {"edit": "$EDITOR {target}", "git": "lazygit"}
+        assert cfg.openers == {
+            "edit": OpenerSpec('$EDITOR "$WF_TARGET"'),
+            "git": OpenerSpec("lazygit"),
+        }
 
-
-class TestEnvOverrides:
-    def test_env_beats_all_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        project = make_project(tmp_path)
-        (project / ".workforest.yaml").write_text("opener: project\nwindow_command: w\n")
-        monkeypatch.setenv("WORKFOREST_OPENER", "from-env")
-        monkeypatch.setenv("WORKFOREST_WINDOW_COMMAND", "spawn {command}")
-        cfg = load_config(project)
-        assert cfg.opener == "from-env"
-        assert cfg.window_command == "spawn {command}"
-
-    def test_empty_env_disables_configured_value(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Set-but-empty forces current-shell mode / default opener chain."""
-        project = make_project(tmp_path)
-        (project / ".workforest.yaml").write_text(
-            "opener: fancy\nwindow_command: 'kitty {command}'\n"
+    def test_entry_mappings_replace_whole(self, tmp_path: Path) -> None:
+        # An entry is one value: a higher layer's mapping replaces the lower
+        # layer's mapping outright, never merges field by field.
+        write_user_config(
+            "openers:\n  edit: $EDITOR\n  win: {from: edit, wrap: kitty}\nwrappers:\n  kitty: k\n"
         )
-        monkeypatch.setenv("WORKFOREST_OPENER", "")
-        monkeypatch.setenv("WORKFOREST_WINDOW_COMMAND", "")
-        cfg = load_config(project)
-        assert cfg.opener == ""
-        assert cfg.window_command == ""
-
-    def test_unset_env_leaves_config_alone(self, tmp_path: Path) -> None:
         project = make_project(tmp_path)
-        (project / ".workforest.yaml").write_text("window_command: 'kitty {command}'\n")
-        assert load_config(project).window_command == "kitty {command}"
+        (project / ".workforest.yaml").write_text("openers:\n  win: {command: x}\n")
+        assert load_config(project).openers["win"] == OpenerSpec("x")
+
+
+class TestEntries:
+    def test_string_is_shorthand_for_command(self, tmp_path: Path) -> None:
+        write_user_config(
+            "openers:\n  edit: '$EDITOR \"$WF_TARGET\"'\n"
+            'wrappers:\n  direnv: \'direnv exec "$WF_WORKTREE" $SHELL -c "$WF_COMMAND"\'\n'
+        )
+        cfg = load_config()
+        assert cfg.openers == {"edit": OpenerSpec('$EDITOR "$WF_TARGET"')}
+        assert cfg.wrappers == {
+            "direnv": CommandSpec('direnv exec "$WF_WORKTREE" $SHELL -c "$WF_COMMAND"')
+        }
+
+    def test_mapping_form(self, tmp_path: Path) -> None:
+        write_user_config(
+            "openers:\n"
+            "  edit: '$EDITOR \"$WF_TARGET\"'\n"
+            "  code: {command: 'code \"$WF_WORKTREE\"', background: true}\n"
+            "  win: {from: edit, wrap: kitty}\n"
+            "  here: {from: code, background: false}\n"
+            "  plain: {command: x, wrap: null}\n"
+            "wrappers:\n  kitty: {command: 'kitty $SHELL -c \"$WF_COMMAND\"', background: true}\n"
+        )
+        cfg = load_config()
+        assert cfg.wrappers == {"kitty": CommandSpec('kitty $SHELL -c "$WF_COMMAND"', True)}
+        assert cfg.openers == {
+            "edit": OpenerSpec('$EDITOR "$WF_TARGET"'),
+            "code": OpenerSpec('code "$WF_WORKTREE"', background=True),
+            "win": OpenerSpec(from_="edit", wrap="kitty"),
+            "here": OpenerSpec(from_="code", background=False),
+            "plain": OpenerSpec("x"),  # wrap: null is "no wrapper"
+        }
+
+    def test_as_dict_round_trips_to_config_form(self, tmp_path: Path) -> None:
+        write_user_config(
+            "openers:\n  edit: '$EDITOR'\n  code: {command: code, background: true}\n"
+            "  win: {from: edit, wrap: kitty}\n  here: {from: code, background: false}\n"
+            "  git: lazygit\n"
+            "wrappers:\n  kitty: {command: kitty, background: true}\n  direnv: direnv\n"
+        )
+        data = load_config().as_dict()
+        assert "commands" not in data
+        assert data["wrappers"] == {
+            "kitty": {"command": "kitty", "background": True},
+            "direnv": "direnv",
+        }
+        assert data["openers"] == {
+            "edit": "$EDITOR",
+            "code": {"command": "code", "background": True},
+            "win": {"from": "edit", "wrap": "kitty"},
+            "here": {"from": "code", "background": False},
+            "git": "lazygit",
+        }
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            ("openers:\n  win: [a, b]\n", "openers.win: must be a shell command or a mapping"),
+            ("openers:\n  win: ''\n", "openers.win: must not be empty"),
+            ("openers:\n  win: {command: ' '}\n", "openers.win: 'command' must not be empty"),
+            (
+                "openers:\n  win: {wrap: kitty}\n",
+                "openers.win: exactly one of 'command' and 'from' is required",
+            ),
+            (
+                "openers:\n  win: {command: x, from: y}\n",
+                "openers.win: exactly one of 'command' and 'from' is required",
+            ),
+            ("openers:\n  win: {command: x, mode: y}\n", "openers.win: unknown key 'mode'"),
+            ("wrappers:\n  k: {command: x, wrap: y}\n", "wrappers.k: unknown key 'wrap'"),
+            ("wrappers:\n  k: {from: x}\n", "wrappers.k: unknown key 'from'"),
+            ("wrappers:\n  k: {background: true}\n", "wrappers.k: 'command' is required"),
+            (
+                "openers:\n  code: {command: x, background: yes please}\n",
+                "openers.code: 'background' must be true or false",
+            ),
+            ("wrappers:\n  k: {command: 1}\n", "wrappers.k: 'command' must be a string"),
+            ("openers:\n  win: {from: 1}\n", "openers.win: 'from' must be a string"),
+            ("openers:\n  win: {command: x, wrap: 1}\n", "openers.win: 'wrap' must be a string"),
+            (
+                "openers:\n  win: {command: x, wrap: k, background: true}\n",
+                "'background' and 'wrap' are mutually exclusive",
+            ),
+            ("scripts:\n  test: {command: x}\n", "'scripts' must be a mapping of string to string"),
+        ],
+    )
+    def test_invalid_entries(self, tmp_path: Path, content: str, message: str) -> None:
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text(content)
+        with pytest.raises(ConfigError, match=message):
+            load_config(project)
+
+
+class TestReferences:
+    """`from` and `wrap` names are checked on the merged config."""
+
+    def test_resolve_across_layers(self, tmp_path: Path) -> None:
+        write_system_config("openers:\n  edit: $EDITOR\n")
+        write_user_config("openers:\n  win: {from: edit, wrap: kitty}\nwrappers:\n  kitty: k\n")
+        assert load_config().openers["win"] == OpenerSpec(from_="edit", wrap="kitty")
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            (
+                "openers:\n  win: {from: edit}\n",
+                r"openers.win: 'from: edit' names no opener \(known: win\)",
+            ),
+            (
+                "openers:\n  a: {from: b}\n  b: {from: c}\n  c: x\n",
+                "openers.a: 'from: b' must name an opener with a command, but b has 'from: c'",
+            ),
+            ("openers:\n  a: {from: a}\n", "openers.a: .* but a has 'from: a'"),
+            ("openers:\n  a: {from: b}\n  b: {from: a}\n", "openers.a: .* but b has 'from: a'"),
+            (
+                "openers:\n  win: {command: x, wrap: kity}\nwrappers:\n  kitty: k\n",
+                r"openers.win: unknown wrapper 'kity' \(available: kitty\)",
+            ),
+            (
+                "openers:\n  win: {command: x, wrap: kitty}\n",
+                r"openers.win: unknown wrapper 'kitty' \(available: none defined\)",
+            ),
+        ],
+    )
+    def test_dangling_references(self, tmp_path: Path, content: str, message: str) -> None:
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text(content)
+        with pytest.raises(ConfigError, match=message):
+            load_config(project)
+
+    def test_target_removed_by_higher_layer(self, tmp_path: Path) -> None:
+        write_user_config("openers:\n  edit: $EDITOR\n  win: {from: edit}\n")
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text("openers:\n  edit: null\n")
+        with pytest.raises(ConfigError, match="'from: edit' names no opener"):
+            load_config(project)
 
 
 class TestValidation:
@@ -188,6 +314,9 @@ class TestValidation:
         project = make_project(tmp_path)
         (project / ".workforest.yaml").write_text("scripts: [a, b]\n")
         with pytest.raises(ConfigError, match="'scripts' must be a mapping"):
+            load_config(project)
+        (project / ".workforest.yaml").write_text("scripts:\n  test: [a, b]\n")
+        with pytest.raises(ConfigError, match="'scripts' must be a mapping of string to string"):
             load_config(project)
 
     def test_non_mapping_top_level(self, tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from workforest import commands, tui
-from workforest.config import Config
+from workforest.config import Config, OpenerSpec
 from workforest.errors import WorkforestError
 
 from .conftest import Repo
@@ -53,8 +53,18 @@ class TestPureHelpers:
 class TestCarousel:
     def test_config_openers_win(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
-        ctx.config = Config(openers={"edit": "$EDITOR {target}", "git": "lazygit"})
-        assert tui.opener_carousel(ctx) == [tui.Opener("edit", "edit"), tui.Opener("git", "git")]
+        ctx.config = Config(
+            openers={
+                "win": OpenerSpec(from_="edit", wrap="kitty"),
+                "git": OpenerSpec("lazygit"),
+                "edit": OpenerSpec("$EDITOR"),
+            }
+        )
+        assert tui.opener_carousel(ctx) == [
+            tui.Opener("win", "win"),
+            tui.Opener("git", "git"),
+            tui.Opener("edit", "edit"),
+        ]
 
     def test_derived_fallback_pair(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)

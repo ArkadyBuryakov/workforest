@@ -11,8 +11,8 @@
 #                  already covered by typical ignore setups, so no .gitignore
 #                  changes are needed. Scaffold with `workforest init --local`.
 #
-# These layers override system and user config; only env vars and CLI flags
-# rank higher. Keep ENVIRONMENT concerns (window_command, openers, default
+# These layers override system and user config; only CLI flags rank higher.
+# Keep ENVIRONMENT concerns (openers, wrappers, the default
 # opener) out of the shared file — teammates have different terminals and
 # editors; shared config is for REPO concerns.
 #
