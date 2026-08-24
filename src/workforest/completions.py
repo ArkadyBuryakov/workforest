@@ -7,7 +7,7 @@ names; the `commands` topic emits `NAME<TAB>KIND<TAB>DESCRIPTION` and the
 (zsh) do, while others take field 1.
 """
 
-from workforest import commands, gitutil
+from workforest import commands, gitutil, launch
 from workforest.config import Config, load_config
 from workforest.errors import WorkforestError
 
@@ -50,13 +50,13 @@ def _commands() -> list[str]:
     from workforest.cli import SUBCOMMAND_HELP, _known_subcommands
 
     known = _known_subcommands()
-    openers = _config().openers
+    config = _config()
     # An opener sharing a subcommand's name is shadowed by it (cli._preprocess
     # dispatches known subcommands first), so don't offer it.
     return [f"{name}\tcommand\t{SUBCOMMAND_HELP[name]}" for name in sorted(known)] + [
         # collapse whitespace: a tab/newline in an opener command would break the line protocol
-        f"{name}\topener\t{' '.join(openers[name].split())}"
-        for name in sorted(openers)
+        f"{name}\topener\t{' '.join(launch.describe_opener(config, name).split())}"
+        for name in sorted(config.openers)
         if name not in known
     ]
 

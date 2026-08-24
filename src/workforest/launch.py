@@ -1,16 +1,16 @@
-"""Opener/window resolution and cd-protocol emission.
+"""Opener resolution, wrapper composition, and cd-protocol emission.
 
-No tool names appear here: what to run comes from config commands and the
-$VISUAL/$EDITOR contract; where to run it is the current shell (ShellAction)
-unless the user configured a window_command.
+No tool names appear here: what to run comes from config (`openers`,
+`wrappers`) and the $VISUAL/$EDITOR contract; where to run it is the user's
+terminal (ShellAction) unless what spawns is `background`.
 
-Openers and window_command are plain shell commands, exactly like `scripts`:
-they run via `$SHELL -c` with the WF_* family in the environment, so
-expansion, quoting, and word splitting are the shell's, never ours —
-`"$WF_X"` is one argument, bare `$WF_X` word-splits, and there is no
-workforest template syntax to escape. In the window path the resolved opener
-command rides along unexpanded as $WF_COMMAND; the window command runs it
-through a shell of its own, e.g. `kitty ... $SHELL -c "$WF_COMMAND"`.
+Every entry is a plain shell command, exactly like `scripts`: it runs via
+`$SHELL -c` with the WF_* family in the environment, so expansion, quoting,
+and word splitting are the shell's, never ours — `"$WF_X"` is one argument,
+bare `$WF_X` word-splits, and there is no workforest template syntax to
+escape. A wrapper additionally gets the opener command unexpanded as
+$WF_COMMAND and runs it through a shell of its own, e.g.
+`kitty ... $SHELL -c "$WF_COMMAND"`.
 """
 
 import os
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from workforest import output
-from workforest.config import Config
+from workforest.config import CommandSpec, Config, OpenerSpec
 from workforest.errors import WorkforestError
 
 
@@ -66,17 +66,62 @@ def cd_action(path: Path) -> ShellAction:
     return ShellAction(f"cd {shlex.quote(str(path))}")
 
 
-def resolve_opener(config: Config, opener_arg: str | None) -> str:
-    """-o NAME → `openers` lookup, else verbatim; default $VISUAL → $EDITOR."""
+@dataclass(slots=True, frozen=True)
+class ResolvedOpener:
+    """What a launch spawns: the opener's own command, or its wrapper with
+    the opener command riding along as $WF_COMMAND."""
+
+    run: CommandSpec  # still unexpanded; its `background` decides where
+    inner: str | None = None  # the opener command when `run` is a wrapper
+
+
+def _opener_spec(config: Config, opener_arg: str | None) -> OpenerSpec:
+    """-o VALUE (or `opener`) → `openers` entry, else the value itself as a
+    shell command; default $VISUAL → $EDITOR."""
     value = opener_arg or config.opener
     if value:
-        return config.openers.get(value, value)
+        return config.openers.get(value) or OpenerSpec(command=value)
     for var in ("VISUAL", "EDITOR"):
         if os.environ.get(var):
-            return os.environ[var]
+            return OpenerSpec(command=os.environ[var])
     raise WorkforestError(
         "no opener: pass -o, set `opener` in a config file, or export $VISUAL/$EDITOR"
     )
+
+
+def _effective(config: Config, spec: OpenerSpec) -> tuple[CommandSpec, str | None]:
+    """The command an opener entry runs — its own, or its `from` target's
+    with `background` inherited unless overridden — and its wrapper name."""
+    base = spec if spec.from_ is None else config.openers.get(spec.from_)
+    if base is None or base.command is None:
+        # load_config validates this; only a hand-built Config gets here
+        raise WorkforestError(f"opener 'from: {spec.from_}' has no command")
+    background = base.background if spec.background is None else spec.background
+    return CommandSpec(base.command, bool(background)), spec.wrap
+
+
+def resolve_opener(
+    config: Config, opener_arg: str | None, wrap_arg: str | None = None
+) -> ResolvedOpener:
+    """Resolve the opener to what spawns. --wrap beats the opener's own
+    `wrap`; an empty value means none."""
+    command, wrap = _effective(config, _opener_spec(config, opener_arg))
+    if wrap_arg is not None:
+        wrap = wrap_arg
+    if not wrap:
+        return ResolvedOpener(command)
+    wrapper = config.wrappers.get(wrap)
+    if wrapper is None:
+        known = ", ".join(sorted(config.wrappers)) or "none defined"
+        raise WorkforestError(f"unknown wrapper {wrap!r} (available: {known})")
+    return ResolvedOpener(wrapper, inner=command.command)
+
+
+def describe_opener(config: Config, name: str) -> str:
+    """One-line summary for completions and the TUI: the command text, plus
+    the wrapper when there is one."""
+    command, wrap = _effective(config, config.openers.get(name) or OpenerSpec(command=name))
+    return f"{command.command} via {wrap}" if wrap else command.command
 
 
 def launch_vars(
@@ -87,9 +132,12 @@ def launch_vars(
     branch: str | None,
     target: str,
 ) -> dict[str, str]:
-    """The full WF_* family for a launch: the scripts'
-    structural five plus the launch-only WF_TARGET and WF_TITLE."""
-    return {
+    """The full WF_* family for a launch: the scripts' structural five, the
+    launch-only WF_TARGET and WF_TITLE, and WF_ENV — all of the above as
+    shell-quoted assignments, for a command string that crosses into a
+    process that does not inherit this environment (a tmux server, ssh):
+    `"export $WF_ENV; $WF_COMMAND"` re-creates the family on the far side."""
+    family = {
         "WF_MAIN": str(main),
         "WF_NAME": main.name,
         "WF_WORKTREES_DIR": str(worktrees_dir),
@@ -98,6 +146,13 @@ def launch_vars(
         "WF_TARGET": target,
         "WF_TITLE": f"{main.name}: {worktree.name}",
     }
+    family["WF_ENV"] = _assignments(family)
+    return family
+
+
+def _assignments(variables: dict[str, str]) -> str:
+    """`NAME=value ...`, each value shell-quoted."""
+    return " ".join(f"{name}={shlex.quote(value)}" for name, value in variables.items())
 
 
 def launch(
@@ -108,15 +163,16 @@ def launch(
     worktrees_dir: Path,
     branch: str | None,
     opener_arg: str | None = None,
+    wrap_arg: str | None = None,
     path_arg: str | None = None,
 ) -> ShellAction | None:
-    """Open a worktree: a ShellAction for the current shell, or a detached
-    window spawn (returning None) when window_command is configured.
+    """Open a worktree: a ShellAction for the user's terminal, or a detached
+    spawn (returning None) when what spawns is `background`.
 
     The launch cwd is always the worktree root; -p only sets WF_TARGET,
     the opener's argument.
     """
-    command = resolve_opener(config, opener_arg)
+    resolved = resolve_opener(config, opener_arg, wrap_arg)
     target = path_arg if path_arg else "."
     variables = launch_vars(
         main=main,
@@ -125,17 +181,19 @@ def launch(
         branch=branch,
         target=target,
     )
-    if config.window_command:
-        spawn_window(config.window_command, variables=variables, command=command, cwd=worktree)
-        output.success(f"opened {worktree.name} in a new window")
+    if resolved.inner is not None:
+        variables["WF_COMMAND"] = resolved.inner
+    command = resolved.run.command
+    if resolved.run.background:
+        spawn_background(command, variables=variables, cwd=worktree)
+        output.success(f"opened {worktree.name} in the background")
         return None
     # Prefix assignments scope WF_* to the child shell alone — nothing leaks
     # into (or goes stale in) the user's interactive shell — and that child
-    # shell, not workforest, expands the opener command with WF_* in its
+    # shell, not workforest, expands the command with WF_* in its
     # environment.
-    assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in variables.items())
     runner = f"{shlex.quote(_user_shell())} -c {shlex.quote(command)}"
-    return ShellAction(f"cd {shlex.quote(str(worktree))} && {assignments} {runner}")
+    return ShellAction(f"cd {shlex.quote(str(worktree))} && {_assignments(variables)} {runner}")
 
 
 def scrub_activation_state(env: dict[str, str]) -> dict[str, str]:
@@ -168,7 +226,7 @@ def scrub_activation_state(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
-# How long a window command gets to fail: long enough to catch argv/env/
+# How long a background command gets to fail: long enough to catch argv/env/
 # display errors, short enough to be imperceptible next to a window opening.
 _GRACE_SECONDS = 0.3
 
@@ -183,20 +241,12 @@ def _describe_exit(returncode: int) -> str:
     return f"exited with status {returncode}"
 
 
-def spawn_window(
-    window_command: str,
-    *,
-    variables: dict[str, str],
-    command: str,
-    cwd: Path,
-) -> None:
-    """Spawn the user's window_command fully detached, via `$SHELL -c`.
+def spawn_background(command: str, *, variables: dict[str, str], cwd: Path) -> None:
+    """Spawn a `background` command fully detached, via `$SHELL -c`.
 
-    The shell — not workforest — expands the command, with WF_* and
-    WF_COMMAND (the still-unexpanded opener command) in its environment.
-    A window_command is expected to run the opener through a shell of its
-    own so the opener's $WF_* references expand too:
-    `kitty ... $SHELL -c "$WF_COMMAND"`. The inherited environment is passed
+    The shell — not workforest — expands the command, with the WF_* family
+    (plus WF_COMMAND, the still-unexpanded opener command, when a wrapper is
+    involved) in its environment. The inherited environment is passed
     through scrub_activation_state first.
 
     Detached is not silent: stderr goes to an unlinked temp file (a pipe
@@ -209,9 +259,9 @@ def spawn_window(
     with tempfile.TemporaryFile() as stderr_file:
         try:
             process = subprocess.Popen(
-                [shell, "-c", window_command],
+                [shell, "-c", command],
                 cwd=cwd,
-                env=scrub_activation_state({**os.environ, **variables, "WF_COMMAND": command}),
+                env=scrub_activation_state({**os.environ, **variables}),
                 start_new_session=True,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -219,7 +269,7 @@ def spawn_window(
             )
         except OSError as exc:
             raise WorkforestError(
-                f"cannot run window_command via $SHELL ({shell!r}): {exc.strerror or exc}"
+                f"cannot run the opener via $SHELL ({shell!r}): {exc.strerror or exc}"
             ) from exc
         try:
             returncode = process.wait(timeout=_GRACE_SECONDS)
@@ -229,7 +279,7 @@ def spawn_window(
             return
         stderr_file.seek(0)
         tail = stderr_file.read().decode(errors="replace").strip().splitlines()[-10:]
-        message = f"window_command {_describe_exit(returncode)} right after launch"
+        message = f"opener {_describe_exit(returncode)} right after launch"
         if tail:
             message += ":\n" + "\n".join(tail)
         raise WorkforestError(message)

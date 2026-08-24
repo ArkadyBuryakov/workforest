@@ -89,6 +89,18 @@ class TestShortcut:
         assert result.out.strip().endswith(""" 'mytool "$WF_TARGET"'""")
         assert "WF_TARGET=README.md" in result.out
 
+    def test_shortcut_with_wrap(self, run_cli: Run, repo: Repo) -> None:
+        repo.write_project_config("wrappers:\n  env: 'direnv exec . $SHELL -c \"$WF_COMMAND\"'\n")
+        run_cli("create", "feat", "--no-open", cwd=repo.path)
+        result = run_cli("mytool", "feat", "-w", "env", cwd=repo.path)
+        assert result.code == 0
+        assert result.out.strip().endswith(
+            """ WF_COMMAND=mytool /bin/sh -c 'direnv exec . $SHELL -c "$WF_COMMAND"'"""
+        )
+        result = run_cli("mytool", "feat", "--wrap", "nope", cwd=repo.path)
+        assert result.code == 1
+        assert "unknown wrapper 'nope' (available: env)" in result.err
+
 
 class TestExitCodes:
     def test_cancelled_off_tty_is_3(self, run_cli: Run, repo: Repo) -> None:

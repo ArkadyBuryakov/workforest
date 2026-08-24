@@ -68,6 +68,7 @@ def _handle_create(ns: argparse.Namespace) -> CommandResult:
         ctx,
         ns.branch,
         opener=ns.opener,
+        wrap=ns.wrap,
         path_arg=ns.path,
         no_hooks=ns.no_hooks,
         no_open=ns.no_open,
@@ -76,7 +77,7 @@ def _handle_create(ns: argparse.Namespace) -> CommandResult:
 
 def _handle_open(ns: argparse.Namespace) -> CommandResult:
     ctx = commands.build_context()
-    return commands.cmd_open(ctx, ns.name, opener=ns.opener, path_arg=ns.path)
+    return commands.cmd_open(ctx, ns.name, opener=ns.opener, wrap=ns.wrap, path_arg=ns.path)
 
 
 def _handle_list(ns: argparse.Namespace) -> CommandResult:
@@ -149,6 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     def opener_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("-o", "--opener", help="opener name or shell command")
+        p.add_argument(
+            "-w",
+            "--wrap",
+            metavar="WRAPPER",
+            help="run the opener through this `wrappers` entry ('' for none)",
+        )
         p.add_argument(
             "-p", "--path", help="path inside the worktree, passed to the opener as $WF_TARGET"
         )

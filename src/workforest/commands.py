@@ -118,6 +118,7 @@ def cmd_create(
     branch: str | None,
     *,
     opener: str | None = None,
+    wrap: str | None = None,
     path_arg: str | None = None,
     no_hooks: bool = False,
     no_open: bool = False,
@@ -164,6 +165,7 @@ def cmd_create(
         worktrees_dir=ctx.worktrees_dir,
         branch=branch,
         opener_arg=opener,
+        wrap_arg=wrap,
         path_arg=path_arg,
     )
 
@@ -173,6 +175,7 @@ def cmd_open(
     name: str | None,
     *,
     opener: str | None = None,
+    wrap: str | None = None,
     path_arg: str | None = None,
 ) -> CommandResult:
     if name:
@@ -190,6 +193,7 @@ def cmd_open(
         worktrees_dir=ctx.worktrees_dir,
         branch=worktree.branch,
         opener_arg=opener,
+        wrap_arg=wrap,
         path_arg=path_arg,
     )
 

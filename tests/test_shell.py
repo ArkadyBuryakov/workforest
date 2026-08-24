@@ -190,15 +190,21 @@ class TestCompleteBackend:
 
     def test_scripts_and_openers(self, repo: Repo, run_cli: Run) -> None:
         repo.write_project_config(
-            "scripts:\n  migrate: 'true'\n  test: 'true'\nopeners:\n  edit: '$EDITOR {target}'\n"
+            "scripts:\n  migrate: 'true'\n  test: 'true'\n"
+            "openers:\n  edit: '$EDITOR \"$WF_TARGET\"'\n  win: {from: edit, wrap: kitty}\n"
+            "wrappers:\n  kitty: 'kitty $SHELL -c \"$WF_COMMAND\"'\n"
         )
         result = run_cli("--complete", "scripts", cwd=repo.path)
         assert result.out.splitlines() == ["migrate", "test"]
+        # wrappers are not openers
         result = run_cli("--complete", "openers", cwd=repo.path)
-        assert result.out.splitlines() == ["edit"]
+        assert result.out.splitlines() == ["edit", "win"]
 
     def test_commands_include_subcommands_and_openers(self, repo: Repo, run_cli: Run) -> None:
-        repo.write_project_config("openers:\n  myedit: '$EDITOR'\n")
+        repo.write_project_config(
+            "openers:\n  myedit: '$EDITOR'\n  win: {from: myedit, wrap: kitty}\n"
+            "wrappers:\n  kitty: 'kitty $SHELL -c \"$WF_COMMAND\"'\n"
+        )
         result = run_cli("--complete", "commands", cwd=repo.path)
         rows = [line.split("\t") for line in result.out.splitlines()]
         assert all(len(row) == 3 for row in rows)  # NAME, KIND, DESCRIPTION
@@ -206,12 +212,13 @@ class TestCompleteBackend:
         assert by_name["create"][0] == "command"
         assert by_name["create"][1]  # help text carried through
         assert by_name["myedit"] == ("opener", "$EDITOR")
+        assert by_name["win"] == ("opener", "$EDITOR via kitty")
         assert "claude" not in by_name  # gated: no ~/.claude
 
     def test_commands_drop_openers_shadowed_by_subcommands(self, repo: Repo, run_cli: Run) -> None:
         """An opener named like a subcommand never dispatches (the subcommand
         wins in cli._preprocess), so it must not be offered."""
-        repo.write_project_config("openers:\n  create: 'code {target}'\n  myedit: '$EDITOR'\n")
+        repo.write_project_config("openers:\n  create: 'code .'\n  myedit: '$EDITOR'\n")
         result = run_cli("--complete", "commands", cwd=repo.path)
         names = [line.split("\t")[0] for line in result.out.splitlines()]
         assert names.count("create") == 1
