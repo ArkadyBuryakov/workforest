@@ -5,7 +5,7 @@ Mode tabs (←/→, alt-h/alt-l), an opener carousel for CREATE/OPEN
 branch), Esc quits, DELETE stays in the loop for bulk cleanup.
 
 Everything except the fzf subprocess itself is pure and unit-tested; fzf is
-the one sanctioned external tool here (DESIGN §6.2).
+the one sanctioned external tool here.
 """
 
 import os
@@ -29,6 +29,8 @@ _PROMPTS = {
 
 _EXPECT_KEYS = "left,right,alt-h,alt-l,ctrl-left,ctrl-right,esc"
 
+_CLAUDE_WARNING = "⚠ experimental: may break on any Claude Code update"
+
 
 def _claude_active(ctx: Context) -> bool:
     try:
@@ -46,7 +48,10 @@ def available_modes(ctx: Context) -> tuple[str, ...]:
 
 def build_header(modes: tuple[str, ...], current: str) -> str:
     tabs = [f"[{m.upper()}]" if m == current else f" {m.upper()} " for m in modes]
-    return " │ ".join(tabs)
+    header = " │ ".join(tabs)
+    if current == "claude":
+        header += "\n" + _CLAUDE_WARNING
+    return header
 
 
 def build_opener_line(names: list[str], current_idx: int) -> str:
@@ -62,14 +67,20 @@ def mode_has_opener(mode: str) -> bool:
     return mode in ("create", "open")
 
 
-def opener_carousel(ctx: Context) -> list[tuple[str, str | None]]:
-    """(label, opener_arg) pairs: config `openers` keys, or the derived
-    fallback pair — default opener and $SHELL (DESIGN §3.4)."""
+@dataclass(slots=True, frozen=True)
+class Opener:
+    label: str
+    arg: str | None  # what cmd_create/cmd_open get as `opener`; None = default
+
+
+def opener_carousel(ctx: Context) -> list[Opener]:
+    """Config `openers` keys, or the derived fallback pair — default opener
+    and $SHELL."""
     if ctx.config.openers:
-        return [(name, name) for name in ctx.config.openers]
-    entries: list[tuple[str, str | None]] = [("edit", None)]
+        return [Opener(name, name) for name in ctx.config.openers]
+    entries = [Opener("edit", None)]
     if shell := os.environ.get("SHELL"):
-        entries.append(("shell", shell))
+        entries.append(Opener("shell", shell))
     return entries
 
 
@@ -81,7 +92,7 @@ def candidates(ctx: Context, mode: str) -> list[str]:
             from workforest.integrations import claude
 
             return [
-                f"{sid}\t{desc}" for sid, desc in claude.list_new_sessions(ctx.main, ctx.cwd_root)
+                f"{s.id}\t{s.description}" for s in claude.list_new_sessions(ctx.main, ctx.cwd_root)
             ]
         case _:
             return [w.name for w in commands.managed_worktrees(ctx)]
@@ -122,7 +133,8 @@ def _fzf_args(mode: str, opener_line: str | None) -> list[str]:
     ]
     if opener_line is not None:
         args += [f"--preview=echo {opener_line!r}", "--preview-window=bottom,1,border-top"]
-    if mode == "claude":
+    if mode in ("create", "claude"):
+        # candidates are NAME<TAB>ANNOTATION lines
         args += ["--delimiter=\t", "--tabstop=4"]
     return args
 
@@ -142,7 +154,8 @@ def _run_fzf(  # pragma: no cover - real fzf needs a terminal
 def _execute(ctx: Context, mode: str, selection: str, opener_arg: str | None) -> CommandResult:
     match mode:
         case "create":
-            return commands.cmd_create(ctx, selection, opener=opener_arg)
+            # a picked candidate is NAME<TAB>LOCATION; a typed query is bare
+            return commands.cmd_create(ctx, selection.split("\t", 1)[0], opener=opener_arg)
         case "open":
             return commands.cmd_open(ctx, selection, opener=opener_arg)
         case "checkout":
@@ -175,7 +188,7 @@ def run(initial_mode: str | None = None) -> CommandResult:  # pragma: no cover -
     while True:
         carousel = opener_carousel(ctx)
         opener_line = (
-            build_opener_line([label for label, _ in carousel], opener_idx)
+            build_opener_line([o.label for o in carousel], opener_idx)
             if mode_has_opener(mode)
             else None
         )
@@ -199,7 +212,7 @@ def run(initial_mode: str | None = None) -> CommandResult:  # pragma: no cover -
                 selection = result.selection or (result.query if mode == "create" else "")
                 if not selection:
                     continue
-                opener_arg = carousel[opener_idx][1] if mode_has_opener(mode) else None
+                opener_arg = carousel[opener_idx].arg if mode_has_opener(mode) else None
                 outcome = _execute(ctx, mode, selection, opener_arg)
                 if mode == "delete":
                     continue  # bulk cleanup: stay in the loop

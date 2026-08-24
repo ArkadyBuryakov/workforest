@@ -62,7 +62,7 @@ class TestListing:
         seed_session(repo.path, "s1", display="short one")
         seed_session(repo.path, "s2", display="x" * 100)
         seed_session(repo.path, "s3", display=None)
-        sessions = dict(claude.list_sessions(repo.path))
+        sessions = {s.id: s.description for s in claude.list_sessions(repo.path)}
         assert sessions["s1"] == "short one"
         assert len(sessions["s2"]) == 80 and sessions["s2"].endswith("...")
         assert sessions["s3"] == "(no description)"
@@ -80,7 +80,7 @@ class TestListing:
         copied = claude.project_dir(worktree)
         copied.mkdir(parents=True)
         (copied / "old.jsonl").write_text("{}\n")
-        assert [sid for sid, _ in claude.list_new_sessions(repo.path, worktree)] == ["new"]
+        assert [s.id for s in claude.list_new_sessions(repo.path, worktree)] == ["new"]
 
 
 class TestCopySession:

@@ -20,7 +20,9 @@ _workforest_complete() {
     COMPREPLY=()
     if [ "$topic" != none ]; then
         local IFS=$'\n'
-        COMPREPLY=($(compgen -W "$(workforest --complete "$topic" 2>/dev/null)" -- "$cur"))
+        # cut: the commands and branches topics emit tab-separated fields;
+        # bash cannot display descriptions, so keep only the name field.
+        COMPREPLY=($(compgen -W "$(workforest --complete "$topic" 2>/dev/null | cut -f1)" -- "$cur"))
     fi
 }
 

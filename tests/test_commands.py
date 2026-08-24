@@ -65,6 +65,61 @@ class TestCreate:
         ctx = ctx_for(repo)
         commands.cmd_create(ctx, "remote-feat", no_open=True)
         assert gitutil.current_branch(ctx.worktrees_dir / "remote-feat") == "remote-feat"
+        upstream = repo.git("rev-parse", "--abbrev-ref", "remote-feat@{upstream}")
+        assert upstream == "origin/remote-feat"
+
+    def test_remote_qualified_branch(self, make_repo: Callable[..., Repo]) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("feat", remote_only=True, remote="upstream")
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "upstream/feat", no_open=True)
+        assert gitutil.current_branch(ctx.worktrees_dir / "feat") == "feat"
+        assert repo.git("rev-parse", "--abbrev-ref", "feat@{upstream}") == "upstream/feat"
+
+    def test_branch_on_multiple_remotes_needs_qualifying(
+        self, make_repo: Callable[..., Repo]
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("shared")
+        repo.git("push", "-q", "upstream", "shared")
+        repo.git("branch", "-D", "shared")
+        ctx = ctx_for(repo)
+        with pytest.raises(WorkforestError, match="origin, upstream"):
+            commands.cmd_create(ctx, "shared", no_open=True)
+        commands.cmd_create(ctx, "upstream/shared", no_open=True)
+        assert repo.git("rev-parse", "--abbrev-ref", "shared@{upstream}") == "upstream/shared"
+
+    def test_branch_missing_on_named_remote_errors(self, make_repo: Callable[..., Repo]) -> None:
+        repo = make_repo(origin=True)
+        ctx = ctx_for(repo)
+        with pytest.raises(WorkforestError, match="not found on remote 'origin'"):
+            commands.cmd_create(ctx, "origin/ghost", no_open=True)
+
+    def test_remote_qualified_with_taken_local_name_prompts(
+        self, make_repo: Callable[..., Repo], tty: Callable[[list[str]], None]
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("feat")  # local, pushed to origin
+        repo.git("push", "-q", "upstream", "feat")
+        ctx = ctx_for(repo)
+        tty(["feat-upstream"])
+        commands.cmd_create(ctx, "upstream/feat", no_open=True)
+        worktree = ctx.worktrees_dir / "feat-upstream"
+        assert gitutil.current_branch(worktree) == "feat-upstream"
+        upstream = repo.git("rev-parse", "--abbrev-ref", "feat-upstream@{upstream}")
+        assert upstream == "upstream/feat"
+
+    def test_remote_qualified_with_taken_local_name_errors_without_tty(
+        self, make_repo: Callable[..., Repo]
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_branch("feat")
+        ctx = ctx_for(repo)
+        with pytest.raises(WorkforestError, match="already exists locally"):
+            commands.cmd_create(ctx, "origin/feat", no_open=True)
 
     def test_branch_already_in_worktree_reuses_it(self, repo: Repo) -> None:
         ctx = ctx_for(repo)
@@ -136,13 +191,14 @@ class TestOpen:
         assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
         assert "WF_TARGET=src" in action.script
 
-    def test_open_file_with_target_template(self, repo: Repo) -> None:
+    def test_open_file_with_target_variable(self, repo: Repo) -> None:
         ctx = ctx_for(repo)
         commands.cmd_create(ctx, "feat", no_open=True)
-        action = commands.cmd_open(ctx, "feat", opener="tool {target}", path_arg="README.md")
+        action = commands.cmd_open(ctx, "feat", opener='tool "$WF_TARGET"', path_arg="README.md")
         assert isinstance(action, ShellAction)
         assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
-        assert action.script.endswith(" tool README.md")
+        assert action.script.endswith(""" /bin/sh -c 'tool "$WF_TARGET"'""")
+        assert "WF_TARGET=README.md" in action.script
 
     def test_open_unknown_errors(self, repo: Repo) -> None:
         with pytest.raises(WorkforestError, match="'nope' not found"):
@@ -151,6 +207,14 @@ class TestOpen:
     def test_open_without_name_is_usage_error(self, repo: Repo) -> None:
         with pytest.raises(UsageError, match="name required"):
             commands.cmd_open(ctx_for(repo), None)
+
+    def test_open_without_name_inside_worktree_opens_it(self, repo: Repo) -> None:
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        inside = ctx_for(repo, cwd=ctx.worktrees_dir / "feat")
+        action = commands.cmd_open(inside, None)
+        assert isinstance(action, ShellAction)
+        assert action.script.startswith(f"cd {ctx.worktrees_dir / 'feat'} && ")
 
     def test_main_worktree_is_not_openable_by_name(self, repo: Repo) -> None:
         # main is not managed; only worktrees inside worktrees_dir resolve
@@ -236,6 +300,14 @@ class TestDelete:
         commands.cmd_create(ctx, "two", no_open=True)
         commands.cmd_delete(ctx, ["one", "two"])
         assert commands.managed_worktrees(ctx) == []
+
+    def test_typo_in_batch_deletes_nothing(self, repo: Repo) -> None:
+        # Every name resolves before anything is removed.
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        with pytest.raises(WorkforestError, match="'ghost' not found"):
+            commands.cmd_delete(ctx, ["feat", "ghost"])
+        assert (ctx.worktrees_dir / "feat").exists()
 
     def test_unknown_name(self, repo: Repo) -> None:
         with pytest.raises(WorkforestError, match="not found"):
@@ -341,4 +413,5 @@ class TestConfigShow:
         assert isinstance(out, str)
         data = json.loads(out)
         assert data["config"]["opener"] == "proj"
-        assert data["sources"][0][0] == "project"
+        assert data["sources"][0]["layer"] == "project"
+        assert data["sources"][0]["path"].endswith(".workforest.yaml")

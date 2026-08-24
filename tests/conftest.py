@@ -70,16 +70,21 @@ class Repo:
         self.git("add", "-A")
         self.git("commit", "--allow-empty", "-m", message)
 
-    def add_branch(self, name: str, *, remote_only: bool = False) -> None:
-        """Create a branch; with remote_only=True it exists only on origin."""
+    def add_branch(self, name: str, *, remote_only: bool = False, remote: str = "origin") -> None:
+        """Create a branch; with remote_only=True it exists only on `remote`."""
         self.git("branch", name)
         if remote_only:
-            if self.origin is None:
-                raise RuntimeError("repo has no origin")
-            self.git("push", "-q", "origin", name)
+            self.git("push", "-q", remote, name)
             self.git("branch", "-D", name)
         elif self.origin is not None:
             self.git("push", "-q", "origin", name)
+
+    def add_remote(self, name: str) -> None:
+        """Add another bare remote alongside origin."""
+        bare = self.path.parent.parent / "remotes" / f"{self.path.name}-{name}.git"
+        bare.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        self.git("remote", "add", name, str(bare))
 
     def make_dirty(self, worktree: Path | None = None, name: str = "dirty.txt") -> None:
         ((worktree or self.path) / name).write_text("uncommitted\n")
@@ -94,7 +99,7 @@ class Repo:
 
 @pytest.fixture
 def make_repo(tmp_path: Path) -> Callable[..., Repo]:
-    """Factory for real git repos under tmp_path (DESIGN §7.3 layer 2)."""
+    """Factory for real git repos under tmp_path."""
 
     def _make(name: str = "api", *, origin: bool = False) -> Repo:
         path = tmp_path / "dev" / name

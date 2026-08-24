@@ -1,4 +1,4 @@
-"""Error hierarchy. cli.py maps these to messages and exit codes (DESIGN §5)."""
+"""Error hierarchy. cli.py maps these to messages and exit codes."""
 
 EXIT_OK = 0
 EXIT_ERROR = 1

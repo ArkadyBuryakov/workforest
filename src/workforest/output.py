@@ -54,22 +54,37 @@ def interactive() -> bool:
     return sys.stdin.isatty() and sys.stderr.isatty()
 
 
-def confirm(question: str, *, default: bool = False) -> bool:
+def ask(question: str) -> str:
+    """Ask for a line of free-text input on the terminal.
+
+    Callers must check interactive() first and provide a non-interactive
+    path (an error with guidance) of their own.
+    """
+    print(f"{question} ", file=sys.stderr, end="", flush=True)
+    try:
+        return input().strip()
+    except EOFError, KeyboardInterrupt:
+        print(file=sys.stderr)
+        raise CancelledError("cancelled") from None
+
+
+def confirm(question: str) -> bool:
     """Ask a y/N question on the terminal.
 
     Raises CancelledError when there is no terminal to ask on — callers that
     support an explicit flag (--force) must check interactive() first and
-    take that path instead.
+    take that path instead. Ctrl-C aborts the whole command (it never means
+    "no"); Ctrl-D declines.
     """
     if not interactive():
         raise CancelledError(f"cannot prompt ({question!r}): not a terminal; use --force")
-    suffix = "[Y/n]" if default else "[y/N]"
-    print(f"{question} {suffix} ", file=sys.stderr, end="", flush=True)
+    print(f"{question} [y/N] ", file=sys.stderr, end="", flush=True)
     try:
         answer = input().strip().lower()
-    except EOFError, KeyboardInterrupt:
+    except EOFError:
         print(file=sys.stderr)
         return False
-    if not answer:
-        return default
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        raise CancelledError("cancelled") from None
     return answer in ("y", "yes")

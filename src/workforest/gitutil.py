@@ -1,6 +1,6 @@
 """Typed subprocess wrappers around git plumbing.
 
-The only module that spawns git (DESIGN §5). Consumers get typed results;
+The only module that spawns git. Consumers get typed results;
 worktree data comes from `--porcelain -z` output, never from parsing the
 human-readable form.
 """
@@ -105,29 +105,31 @@ def local_branches(cwd: Path | None = None) -> list[str]:
     return out.splitlines() if out else []
 
 
-def remote_branches(cwd: Path | None = None) -> list[str]:
-    """Remote branch names with the remote prefix stripped, deduplicated."""
-    out = git_output(["for-each-ref", "--format=%(refname:short)", "refs/remotes"], cwd=cwd)
-    seen: dict[str, None] = {}
+def remotes(cwd: Path | None = None) -> list[str]:
+    out = git_output(["remote"], cwd=cwd)
+    return out.splitlines() if out else []
+
+
+def remote_branches(cwd: Path | None = None) -> dict[str, list[str]]:
+    """Map of branch name -> remotes that have it, across all remotes."""
+    # Longest name first: a remote named "up/stream" must win over "up".
+    names = sorted(remotes(cwd), key=len, reverse=True)
+    out = git_output(["for-each-ref", "--format=%(refname)", "refs/remotes"], cwd=cwd)
+    branches: dict[str, list[str]] = {}
     for ref in out.splitlines():
-        _, _, name = ref.partition("/")
-        if name and name != "HEAD":
-            seen.setdefault(name)
-    return list(seen)
+        ref = ref.removeprefix("refs/remotes/")
+        for remote in names:
+            name = ref.removeprefix(f"{remote}/")
+            if name != ref:
+                if name != "HEAD":
+                    branches.setdefault(name, []).append(remote)
+                break
+    return branches
 
 
 def branch_exists(branch: str, cwd: Path | None = None) -> bool:
     result = run_git(
         ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=cwd, check=False
-    )
-    return result.returncode == 0
-
-
-def remote_branch_exists(branch: str, cwd: Path | None = None) -> bool:
-    result = run_git(
-        ["show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
-        cwd=cwd,
-        check=False,
     )
     return result.returncode == 0
 
@@ -144,11 +146,12 @@ def status_porcelain(path: Path) -> str:
     return run_git(["status", "--porcelain"], cwd=path).stdout.rstrip("\n")
 
 
-def worktree_add(repo: Path, path: Path, branch: str) -> None:
-    """Add a worktree, resolving the branch local → origin remote → new."""
-    if branch_exists(branch, repo) or remote_branch_exists(branch, repo):
-        # git checks out the local branch, or DWIMs a tracking branch from
-        # the remote one.
+def worktree_add(repo: Path, path: Path, branch: str, *, track: str | None = None) -> None:
+    """Add a worktree: create `branch` tracking the `track` remote ref, check
+    out the existing local branch, or create a brand-new branch."""
+    if track is not None:
+        run_git(["worktree", "add", "--track", "-b", branch, str(path), track], cwd=repo)
+    elif branch_exists(branch, repo):
         run_git(["worktree", "add", str(path), branch], cwd=repo)
     else:
         run_git(["worktree", "add", "-b", branch, str(path)], cwd=repo)

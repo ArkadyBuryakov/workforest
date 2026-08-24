@@ -123,6 +123,18 @@ class TestWfFunction:
         assert result.returncode == 0, result.stderr
         assert result.stdout.startswith("feat\tfeat\t")
 
+    def test_wf_never_evals_data_output(self, shell: str, repo: Repo) -> None:
+        """Regression: a worktree named `cd` makes `wf list` lines start with
+        "cd " — the directive sentinel, not the text, decides what is eval'd."""
+        ctx = commands.build_context(repo.path)
+        commands.cmd_create(ctx, "cd", no_open=True)
+        script = f'eval "$(workforest shell-init {shell})"\nwf list\npwd\n'
+        result = run_shell(shell, script, cwd=repo.path)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert lines[0].startswith("cd ")  # listing passed through as data
+        assert lines[-1] == str(repo.path)  # and the shell did not move
+
     def test_wf_propagates_failure(self, shell: str, repo: Repo) -> None:
         script = f'eval "$(workforest shell-init {shell})"\nwf open ghost\n'
         result = run_shell(shell, script, cwd=repo.path)
@@ -138,10 +150,37 @@ class TestCompleteBackend:
         commands.cmd_create(ctx, "taken", no_open=True)
         result = run_cli("--complete", "branches", cwd=repo.path)
         assert result.code == 0
-        candidates = result.out.splitlines()
+        candidates = [line.split("\t")[0] for line in result.out.splitlines()]
         assert "free" in candidates
         assert "taken" not in candidates
         assert "main" not in candidates  # checked out in the main worktree
+
+    def test_branches_annotated_with_location(
+        self, make_repo: Callable[..., Repo], run_cli: Run
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_branch("everywhere")
+        repo.add_branch("remote-only", remote_only=True)
+        result = run_cli("--complete", "branches", cwd=repo.path)
+        rows = dict(line.split("\t") for line in result.out.splitlines())
+        assert rows["everywhere"] == "local, origin"
+        # remote-only branches are offered remote-qualified
+        assert "remote-only" not in rows
+        assert rows["origin/remote-only"] == "origin"
+
+    def test_branches_on_multiple_remotes_offered_qualified(
+        self, make_repo: Callable[..., Repo], run_cli: Run
+    ) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("shared")
+        repo.git("push", "-q", "upstream", "shared")
+        repo.git("branch", "-D", "shared")
+        result = run_cli("--complete", "branches", cwd=repo.path)
+        rows = dict(line.split("\t") for line in result.out.splitlines())
+        assert "shared" not in rows
+        assert rows["origin/shared"] == "origin"
+        assert rows["upstream/shared"] == "upstream"
 
     def test_worktrees(self, repo: Repo, run_cli: Run) -> None:
         ctx = commands.build_context(repo.path)
@@ -161,10 +200,22 @@ class TestCompleteBackend:
     def test_commands_include_subcommands_and_openers(self, repo: Repo, run_cli: Run) -> None:
         repo.write_project_config("openers:\n  myedit: '$EDITOR'\n")
         result = run_cli("--complete", "commands", cwd=repo.path)
-        candidates = result.out.splitlines()
-        assert "create" in candidates
-        assert "myedit" in candidates
-        assert "claude" not in candidates  # gated: no ~/.claude
+        rows = [line.split("\t") for line in result.out.splitlines()]
+        assert all(len(row) == 3 for row in rows)  # NAME, KIND, DESCRIPTION
+        by_name = {name: (kind, desc) for name, kind, desc in rows}
+        assert by_name["create"][0] == "command"
+        assert by_name["create"][1]  # help text carried through
+        assert by_name["myedit"] == ("opener", "$EDITOR")
+        assert "claude" not in by_name  # gated: no ~/.claude
+
+    def test_commands_drop_openers_shadowed_by_subcommands(self, repo: Repo, run_cli: Run) -> None:
+        """An opener named like a subcommand never dispatches (the subcommand
+        wins in cli._preprocess), so it must not be offered."""
+        repo.write_project_config("openers:\n  create: 'code {target}'\n  myedit: '$EDITOR'\n")
+        result = run_cli("--complete", "commands", cwd=repo.path)
+        names = [line.split("\t")[0] for line in result.out.splitlines()]
+        assert names.count("create") == 1
+        assert "myedit" in names
 
     def test_never_errors(self, tmp_path: Path, run_cli: Run) -> None:
         outside = tmp_path / "outside"
@@ -181,4 +232,5 @@ class TestCompleteBackend:
         outside.mkdir()
         monkeypatch.chdir(outside)
         assert completions.complete("worktrees") == []
-        assert "create" in completions.complete("commands")
+        names = [line.split("\t")[0] for line in completions.complete("commands")]
+        assert "create" in names

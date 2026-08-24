@@ -1,8 +1,9 @@
 """Core commands. Each returns a ShellAction (stdout directive), a str
-(stdout text), or None — cli.py is the sole stdout writer (DESIGN §5)."""
+(stdout text), or None — cli.py is the sole stdout writer."""
 
 import importlib.resources
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,8 +43,8 @@ def build_context(cwd: Path | None = None) -> Context:
 
 
 def managed_worktrees(ctx: Context) -> list[gitutil.Worktree]:
-    """Worktrees located directly inside the resolved worktrees dir
-    (DESIGN §3.5) — the only ones we list, complete, or delete."""
+    """Worktrees located directly inside the resolved worktrees dir —
+    the only ones we list, complete, or delete."""
     return [
         worktree
         for worktree in gitutil.list_worktrees(ctx.main)
@@ -60,6 +61,47 @@ def find_managed(ctx: Context, name: str) -> gitutil.Worktree:
 
 def short_branch_name(branch: str) -> str:
     return branch.rsplit("/", 1)[-1]
+
+
+@dataclass(slots=True, frozen=True)
+class ResolvedBranch:
+    branch: str  # local branch name
+    track: str | None  # remote ref the branch should track, if any
+
+
+def _resolve_branch(ctx: Context, spec: str) -> ResolvedBranch:
+    """Resolve BRANCH or REMOTE/BRANCH to a local branch and its remote ref.
+
+    Precedence: exact local branch, explicit REMOTE/BRANCH, a branch known to
+    exactly one remote; anything else names a new local branch.
+    """
+    if gitutil.branch_exists(spec, ctx.main):
+        return ResolvedBranch(spec, track=None)
+    remote_map = gitutil.remote_branches(ctx.main)
+    for remote in sorted(gitutil.remotes(ctx.main), key=len, reverse=True):
+        branch = spec.removeprefix(f"{remote}/")
+        if branch == spec:
+            continue
+        if remote not in remote_map.get(branch, ()):
+            raise WorkforestError(f"branch {branch!r} not found on remote {remote!r}")
+        while gitutil.branch_exists(branch, ctx.main):
+            # The obvious local name is taken (possibly tracking a different
+            # remote), so the new branch needs a name of its own.
+            if not output.interactive():
+                raise WorkforestError(
+                    f"branch {branch!r} already exists locally; `wf create {branch}` to use it"
+                )
+            branch = output.ask(f"branch {branch!r} already exists locally; local name for {spec}:")
+            if not branch:
+                raise CancelledError("cancelled")
+        return ResolvedBranch(branch, track=spec)
+    carriers = remote_map.get(spec, [])
+    if len(carriers) > 1:
+        raise WorkforestError(
+            f"branch {spec!r} exists on multiple remotes ({', '.join(carriers)}); "
+            f"pick one, e.g. `wf create {carriers[0]}/{spec}`"
+        )
+    return ResolvedBranch(spec, track=f"{carriers[0]}/{spec}" if carriers else None)
 
 
 def _script_env(ctx: Context, worktree: Path, branch: str | None) -> dict[str, str]:
@@ -84,6 +126,8 @@ def cmd_create(
         branch = gitutil.current_branch(ctx.cwd_root)
         if branch == "HEAD":
             raise WorkforestError("detached HEAD: specify a branch name")
+    resolved = _resolve_branch(ctx, branch)
+    branch = resolved.branch
 
     existing = gitutil.find_branch_worktree(branch, ctx.main)
     if existing is not None:
@@ -102,7 +146,7 @@ def cmd_create(
         if worktree_path.exists():
             raise WorkforestError(f"directory exists but is not a worktree: {worktree_path}")
         ctx.worktrees_dir.mkdir(parents=True, exist_ok=True)
-        gitutil.worktree_add(ctx.main, worktree_path, branch)
+        gitutil.worktree_add(ctx.main, worktree_path, branch, track=resolved.track)
         output.success(f"created worktree for {branch!r} at {worktree_path}")
         if not no_hooks:
             env = _script_env(ctx, worktree_path, branch)
@@ -131,9 +175,14 @@ def cmd_open(
     opener: str | None = None,
     path_arg: str | None = None,
 ) -> CommandResult:
-    if not name:
-        raise UsageError("worktree name required")
-    worktree = find_managed(ctx, name)
+    if name:
+        worktree = find_managed(ctx, name)
+    else:
+        # No name, but standing in a managed worktree: that's the one.
+        current = next((w for w in managed_worktrees(ctx) if w.path == ctx.cwd_root), None)
+        if current is None:
+            raise UsageError("worktree name required (or run inside a managed worktree)")
+        worktree = current
     return launch.launch(
         ctx.config,
         main=ctx.main,
@@ -147,28 +196,25 @@ def cmd_open(
 
 def cmd_list(ctx: Context, *, porcelain: bool = False) -> CommandResult:
     worktrees = managed_worktrees(ctx)
-    if porcelain:
-        lines = [
-            "\t".join(
-                (
-                    w.name,
-                    w.branch or "",
-                    str(w.path),
-                    "1" if gitutil.status_porcelain(w.path) else "0",
-                )
-            )
-            for w in worktrees
-        ]
-        return "\n".join(lines)
     if not worktrees:
+        if porcelain:
+            return ""
         output.info(f"no worktrees in {ctx.worktrees_dir} (create one with: wf create BRANCH)")
         return None
+    # One `git status` per worktree; subprocess-bound, so run them together.
+    with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
+        dirty = list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
+    if porcelain:
+        return "\n".join(
+            "\t".join((w.name, w.branch or "", str(w.path), "1" if is_dirty else "0"))
+            for w, is_dirty in zip(worktrees, dirty, strict=True)
+        )
     name_width = max(len(w.name) for w in worktrees)
     branch_width = max(len(w.branch or "(detached)") for w in worktrees)
     rows = [
         f"{w.name:<{name_width}}  {w.branch or '(detached)':<{branch_width}}  "
-        f"{'dirty' if gitutil.status_porcelain(w.path) else 'clean'}  {w.path}"
-        for w in worktrees
+        f"{'dirty' if is_dirty else 'clean'}  {w.path}"
+        for w, is_dirty in zip(worktrees, dirty, strict=True)
     ]
     return "\n".join(rows)
 
@@ -198,12 +244,14 @@ def cmd_delete(
     delete_branch: bool | None = None,
 ) -> CommandResult:
     result: CommandResult = None
-    for name in names:
-        worktree = find_managed(ctx, name)
+    # Resolve every name first: a typo must fail the batch before anything
+    # is deleted, not strand it half-done.
+    worktrees = [find_managed(ctx, name) for name in names]
+    for worktree in worktrees:
         _confirm_dirty(worktree, "Delete anyway?", force=force)
         branch = worktree.branch
         gitutil.worktree_remove(ctx.main, worktree.path, force=True)
-        output.success(f"deleted worktree {name!r}")
+        output.success(f"deleted worktree {worktree.name!r}")
         if worktree.path == ctx.cwd_root:
             # The shell is standing in the directory we just removed —
             # move it back to the main checkout.
@@ -276,13 +324,13 @@ def cmd_config_show(*, as_json: bool = False) -> CommandResult:
         config = ctx.config
     except NotARepoError:
         config = load_config(None)
-    sources = [(layer, str(path)) for layer, path in config.sources]
     if as_json:
+        sources = [{"layer": s.layer, "path": str(s.path)} for s in config.sources]
         return json.dumps({"config": config.as_dict(), "sources": sources}, indent=2)
     dump = yaml.safe_dump(config.as_dict(), sort_keys=False).rstrip("\n")
     lines = [dump, "", "# sources (low -> high):"]
-    if sources:
-        lines.extend(f"#   {layer}: {path}" for layer, path in sources)
+    if config.sources:
+        lines.extend(f"#   {s.layer}: {s.path}" for s in config.sources)
     else:
         lines.append("#   (built-in defaults only)")
     return "\n".join(lines)

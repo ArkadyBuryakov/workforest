@@ -1,6 +1,6 @@
 """Configuration: schema, layered loading, merging, template resolution.
 
-Layers (low → high, DESIGN §4.1): built-in defaults → system → user →
+Layers (low → high): built-in defaults → system → user →
 project-shared (main worktree root) → project-local (.vscode/ then .idea/) →
 environment → CLI flags (applied by commands, not here).
 """
@@ -21,17 +21,31 @@ GLOBAL_BASENAMES = ("config.yaml", "config.yml", "config.json")
 PROJECT_BASENAMES = (".workforest.yaml", ".workforest.yml", ".workforest.json")
 PROJECT_LOCAL_DIRS = (".vscode", ".idea")
 
-# key -> (kind, default). Kinds: "str", "list", "map" (str -> str, where a
-# null value deletes the inherited entry during merge).
-_SCHEMA: dict[str, tuple[str, Any]] = {
-    "worktrees_dir": ("str", "$WF_MAIN/../worktrees/$WF_NAME"),
-    "opener": ("str", ""),
-    "openers": ("map", {}),
-    "window_command": ("str", ""),
-    "symlinks": ("list", []),
-    "setup_scripts": ("list", []),
-    "scripts": ("map", {}),
+
+@dataclass(slots=True, frozen=True)
+class _FieldSpec:
+    """Kinds: "str", "list", "map" (str -> str, where a null value deletes
+    the inherited entry during merge)."""
+
+    kind: str
+    default: Any
+
+
+_SCHEMA: dict[str, _FieldSpec] = {
+    "worktrees_dir": _FieldSpec("str", "$WF_MAIN/../worktrees/$WF_NAME"),
+    "opener": _FieldSpec("str", ""),
+    "openers": _FieldSpec("map", {}),
+    "window_command": _FieldSpec("str", ""),
+    "symlinks": _FieldSpec("list", []),
+    "setup_scripts": _FieldSpec("list", []),
+    "scripts": _FieldSpec("map", {}),
 }
+
+
+@dataclass(slots=True, frozen=True)
+class ConfigSource:
+    layer: str  # "system", "user", "project", or "project-local"
+    path: Path
 
 
 @dataclass(slots=True)
@@ -43,7 +57,7 @@ class Config:
     symlinks: list[str] = field(default_factory=list)
     setup_scripts: list[str] = field(default_factory=list)
     scripts: dict[str, str] = field(default_factory=dict)
-    sources: list[tuple[str, Path]] = field(default_factory=list)
+    sources: list[ConfigSource] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -81,8 +95,7 @@ def _validate(data: dict[str, Any], path: Path) -> None:
         if key not in _SCHEMA:
             known = ", ".join(sorted(_SCHEMA))
             raise ConfigError(f"{path}: unknown key {key!r} (known keys: {known})")
-        kind, _ = _SCHEMA[key]
-        match kind:
+        match _SCHEMA[key].kind:
             case "str":
                 if not isinstance(value, str):
                     raise ConfigError(
@@ -105,8 +118,7 @@ def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Scalars/lists replace; mappings merge per key with null deleting."""
     merged = dict(base)
     for key, value in overlay.items():
-        kind, _ = _SCHEMA[key]
-        if kind == "map":
+        if _SCHEMA[key].kind == "map":
             combined: dict[str, str] = dict(merged.get(key, {}))
             for name, entry in value.items():
                 if entry is None:
@@ -127,33 +139,33 @@ def _first_existing(directory: Path, basenames: tuple[str, ...]) -> Path | None:
     return None
 
 
-def _layer_files(main_worktree: Path | None) -> list[tuple[str, Path]]:
-    layers: list[tuple[str, Path]] = []
+def _layer_files(main_worktree: Path | None) -> list[ConfigSource]:
+    layers: list[ConfigSource] = []
     if found := _first_existing(SYSTEM_CONFIG_DIR, GLOBAL_BASENAMES):
-        layers.append(("system", found))
+        layers.append(ConfigSource("system", found))
     xdg = os.environ.get("XDG_CONFIG_HOME")
     user_dir = (Path(xdg) if xdg else Path.home() / ".config") / "workforest"
     if found := _first_existing(user_dir, GLOBAL_BASENAMES):
-        layers.append(("user", found))
+        layers.append(ConfigSource("user", found))
     if main_worktree is not None:
         if found := _first_existing(main_worktree, PROJECT_BASENAMES):
-            layers.append(("project", found))
+            layers.append(ConfigSource("project", found))
         for local_dir in PROJECT_LOCAL_DIRS:
             if found := _first_existing(main_worktree / local_dir, PROJECT_BASENAMES):
-                layers.append(("project-local", found))
+                layers.append(ConfigSource("project-local", found))
                 break
     return layers
 
 
 def load_config(main_worktree: Path | None = None) -> Config:
     """Load and merge all layers; main_worktree=None skips project layers."""
-    merged = {key: default for key, (_, default) in _SCHEMA.items()}
-    sources: list[tuple[str, Path]] = []
-    for layer, path in _layer_files(main_worktree):
-        data = _parse_file(path)
-        _validate(data, path)
+    merged = {key: spec.default for key, spec in _SCHEMA.items()}
+    sources: list[ConfigSource] = []
+    for source in _layer_files(main_worktree):
+        data = _parse_file(source.path)
+        _validate(data, source.path)
         merged = _merge(merged, data)
-        sources.append((layer, path))
+        sources.append(source)
 
     # Set-but-empty is meaningful: WORKFOREST_WINDOW_COMMAND="" forces the
     # current-shell mode in sessions where the configured window_command
@@ -168,7 +180,7 @@ def load_config(main_worktree: Path | None = None) -> Config:
 
 
 def template_vars(main_worktree: Path) -> dict[str, str]:
-    """The WF_* family as template variables (DESIGN §3.5/§3.6)."""
+    """The WF_* family as template variables."""
     return {
         "WF_MAIN": str(main_worktree),
         "WF_NAME": main_worktree.name,

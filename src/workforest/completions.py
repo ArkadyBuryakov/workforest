@@ -1,7 +1,10 @@
 """`workforest --complete TOPIC` backend.
 
 Completion must never break the shell: any error yields an empty candidate
-list, and everything stays on stdout as bare lines.
+list, and everything stays on stdout as plain lines. Most topics emit bare
+names; the `commands` topic emits `NAME<TAB>KIND<TAB>DESCRIPTION` and the
+`branches` topic `NAME<TAB>LOCATION` so shells that can render descriptions
+(zsh) do, while others take field 1.
 """
 
 from workforest import commands, gitutil
@@ -44,20 +47,37 @@ def _config() -> Config:
 
 
 def _commands() -> list[str]:
-    from workforest.cli import _known_subcommands
+    from workforest.cli import SUBCOMMAND_HELP, _known_subcommands
 
-    return sorted(_known_subcommands()) + sorted(_config().openers)
+    known = _known_subcommands()
+    openers = _config().openers
+    # An opener sharing a subcommand's name is shadowed by it (cli._preprocess
+    # dispatches known subcommands first), so don't offer it.
+    return [f"{name}\tcommand\t{SUBCOMMAND_HELP[name]}" for name in sorted(known)] + [
+        # collapse whitespace: a tab/newline in an opener command would break the line protocol
+        f"{name}\topener\t{' '.join(openers[name].split())}"
+        for name in sorted(openers)
+        if name not in known
+    ]
 
 
 def _branches() -> list[str]:
-    """Local then remote branches, minus those already checked out."""
+    """`NAME<TAB>LOCATION` lines, minus branches already checked out: local
+    branches by their bare name (location lists their remotes too), remote-only
+    branches remote-qualified — the form `wf create` resolves unambiguously."""
     root = gitutil.repo_root()
     taken = {w.branch for w in gitutil.list_worktrees(root) if w.branch}
-    candidates: dict[str, None] = {}
-    for branch in (*gitutil.local_branches(root), *gitutil.remote_branches(root)):
-        if branch not in taken:
-            candidates.setdefault(branch)
-    return list(candidates)
+    local = gitutil.local_branches(root)
+    remote_map = gitutil.remote_branches(root)
+    lines = [
+        f"{branch}\t{', '.join(['local', *remote_map.get(branch, [])])}"
+        for branch in local
+        if branch not in taken
+    ]
+    for branch, remotes in remote_map.items():
+        if branch not in taken and branch not in local:
+            lines.extend(f"{remote}/{branch}\t{remote}" for remote in remotes)
+    return lines
 
 
 def _worktrees() -> list[str]:
@@ -73,4 +93,4 @@ def _claude_sessions() -> list[str]:
     ctx = commands.build_context()
     if ctx.cwd_root == ctx.main:
         return []
-    return [sid for sid, _ in claude.list_new_sessions(ctx.main, ctx.cwd_root)]
+    return [s.id for s in claude.list_new_sessions(ctx.main, ctx.cwd_root)]

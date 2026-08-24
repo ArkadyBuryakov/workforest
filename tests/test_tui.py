@@ -17,6 +17,10 @@ class TestPureHelpers:
         header = tui.build_header(("create", "open"), "open")
         assert header == " CREATE  │ [OPEN]"
 
+    def test_header_warns_in_claude_mode(self) -> None:
+        header = tui.build_header(("create", "claude"), "claude")
+        assert header == " CREATE  │ [CLAUDE]\n" + tui._CLAUDE_WARNING
+
     def test_opener_line_marks_current(self) -> None:
         line = tui.build_opener_line(["edit", "shell"], 0)
         assert line == "  [edit] |  shell "
@@ -50,17 +54,18 @@ class TestCarousel:
     def test_config_openers_win(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
         ctx.config = Config(openers={"edit": "$EDITOR {target}", "git": "lazygit"})
-        assert tui.opener_carousel(ctx) == [("edit", "edit"), ("git", "git")]
+        assert tui.opener_carousel(ctx) == [tui.Opener("edit", "edit"), tui.Opener("git", "git")]
 
     def test_derived_fallback_pair(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
         # SHELL is pinned to /bin/sh by the isolation fixture
-        assert tui.opener_carousel(ctx) == [("edit", None), ("shell", "/bin/sh")]
+        expected = [tui.Opener("edit", None), tui.Opener("shell", "/bin/sh")]
+        assert tui.opener_carousel(ctx) == expected
 
     def test_fallback_without_shell(self, repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("SHELL")
         ctx = commands.build_context(repo.path)
-        assert tui.opener_carousel(ctx) == [("edit", None)]
+        assert tui.opener_carousel(ctx) == [tui.Opener("edit", None)]
 
 
 class TestModesAndCandidates:
@@ -82,7 +87,8 @@ class TestModesAndCandidates:
         repo.add_branch("free-branch")
         monkeypatch.chdir(repo.path)
         ctx = commands.build_context(repo.path)
-        assert "free-branch" in tui.candidates(ctx, "create")
+        names = [line.split("\t")[0] for line in tui.candidates(ctx, "create")]
+        assert "free-branch" in names
 
     def test_other_candidates_are_worktrees(self, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)

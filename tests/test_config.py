@@ -57,7 +57,7 @@ class TestLayering:
         assert cfg.opener == "local"
         # keys not set by higher layers survive from lower ones
         assert cfg.window_command == "from-system"
-        assert [layer for layer, _ in cfg.sources] == [
+        assert [s.layer for s in cfg.sources] == [
             "system",
             "user",
             "project",
@@ -91,7 +91,7 @@ class TestLayering:
         (project / ".idea" / ".workforest.yaml").write_text("opener: idea\n")
         cfg = load_config(project)
         assert cfg.opener == "idea"
-        assert cfg.sources[-1][0] == "project-local"
+        assert cfg.sources[-1].layer == "project-local"
 
     def test_local_overrides_only_its_keys(self, tmp_path: Path) -> None:
         project = make_project(tmp_path)

@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from workforest import __version__
+from workforest import __version__, cli
 
 from .conftest import CliResult, Repo
 
@@ -45,7 +45,7 @@ class TestStdoutContract:
         assert result.code == 0
         lines = result.out.splitlines()
         assert len(lines) == 1
-        assert lines[0].startswith("cd ")
+        assert lines[0].startswith(f"{cli.SHELL_DIRECTIVE_PREFIX}cd ")
         assert lines[0].endswith(" stub-editor")
         assert "WF_MAIN=" in lines[0]  # WF_* rides along as prefix assignments
         assert "created worktree" in result.err  # human messages on stderr
@@ -67,7 +67,7 @@ class TestStdoutContract:
         run_cli("create", "feat", "--no-open", cwd=repo.path)
         result = run_cli("checkout", "feat", cwd=repo.path)
         assert result.code == 0
-        assert result.out.strip() == f"cd {repo.path}"
+        assert result.out.rstrip("\n") == f"{cli.SHELL_DIRECTIVE_PREFIX}cd {repo.path}"
 
     def test_config_dump_on_stdout(self, run_cli: Run, repo: Repo) -> None:
         result = run_cli("config", cwd=repo.path)
@@ -84,9 +84,10 @@ class TestShortcut:
 
     def test_shortcut_passes_path(self, run_cli: Run, repo: Repo) -> None:
         run_cli("create", "feat", "--no-open", cwd=repo.path)
-        result = run_cli("mytool {target}", "feat", "-p", "README.md", cwd=repo.path)
+        result = run_cli('mytool "$WF_TARGET"', "feat", "-p", "README.md", cwd=repo.path)
         assert result.code == 0
-        assert result.out.strip().endswith(" mytool README.md")
+        assert result.out.strip().endswith(""" 'mytool "$WF_TARGET"'""")
+        assert "WF_TARGET=README.md" in result.out
 
 
 class TestExitCodes:

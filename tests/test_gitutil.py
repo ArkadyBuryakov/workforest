@@ -87,11 +87,24 @@ class TestRepoQueries:
         repo.add_branch("feature/local")
         repo.add_branch("remote-only", remote_only=True)
         assert set(gitutil.local_branches(repo.path)) == {"main", "feature/local"}
-        assert "remote-only" in gitutil.remote_branches(repo.path)
-        assert "HEAD" not in gitutil.remote_branches(repo.path)
+        assert gitutil.remotes(repo.path) == ["origin"]
+        assert gitutil.remote_branches(repo.path) == {
+            "main": ["origin"],
+            "feature/local": ["origin"],
+            "remote-only": ["origin"],
+        }
         assert gitutil.branch_exists("feature/local", repo.path)
         assert not gitutil.branch_exists("remote-only", repo.path)
-        assert gitutil.remote_branch_exists("remote-only", repo.path)
+
+    def test_remote_branches_cover_all_remotes(self, make_repo: Callable[..., Repo]) -> None:
+        repo = make_repo(origin=True)
+        repo.add_remote("upstream")
+        repo.add_branch("shared")
+        repo.git("push", "-q", "upstream", "shared")
+        repo.add_branch("upstream-only", remote_only=True, remote="upstream")
+        branches = gitutil.remote_branches(repo.path)
+        assert branches["shared"] == ["origin", "upstream"]
+        assert branches["upstream-only"] == ["upstream"]
 
     def test_status_porcelain(self, repo: Repo) -> None:
         assert gitutil.status_porcelain(repo.path) == ""
@@ -114,16 +127,16 @@ class TestMutations:
         gitutil.worktree_add(repo.path, target, "existing")
         assert gitutil.current_branch(target) == "existing"
 
-    def test_worktree_add_remote_branch(
+    def test_worktree_add_tracking_remote(
         self, make_repo: Callable[..., Repo], tmp_path: Path
     ) -> None:
         repo = make_repo(origin=True)
         repo.add_branch("remote-feat", remote_only=True)
         target = tmp_path / "wt" / "remote-feat"
-        gitutil.worktree_add(repo.path, target, "remote-feat")
+        gitutil.worktree_add(repo.path, target, "remote-feat", track="origin/remote-feat")
         assert gitutil.current_branch(target) == "remote-feat"
-        # DWIM created the local branch tracking origin
-        assert gitutil.branch_exists("remote-feat", repo.path)
+        upstream = repo.git("rev-parse", "--abbrev-ref", "remote-feat@{upstream}")
+        assert upstream == "origin/remote-feat"
 
     def test_worktree_remove_and_delete_branch(self, repo: Repo, tmp_path: Path) -> None:
         target = tmp_path / "wt" / "gone"
