@@ -150,9 +150,13 @@ Mapping of name \(-> script for
 .BI "workforest run " NAME\fR,
 run from the current worktree's root with any extra arguments
 shell-quoted and appended.
-An entry is a shell command string, or a mapping with
+An entry is a shell command string, or a mapping with exactly one of
 .B command
-(the shell command) and optionally
+(the shell command),
+.B bulk
+(a list of entry names to run at once), and
+.B pipeline
+(a list of entry names to run in order), and optionally
 .BR background " and " exclusive
 (booleans, default false),
 .B cleanup
@@ -160,6 +164,35 @@ An entry is a shell command string, or a mapping with
 .B stop_timeout
 (seconds).
 .RS
+.TP
+.B bulk
+The named entries at once, their output relayed line by line and
+prefixed with the member's name.
+Members cannot read the terminal, but Ctrl-C reaches them all.
+A bulk waits for every member and fails if any of them did.
+.TP
+.B pipeline
+The named entries one after another, each with the terminal like a
+.B workforest run
+of its own; a
+.B background
+member is started and left running while the pipeline moves on.
+The first failing step ends the pipeline with its status.
+.PP
+A group is run by a supervisor that owns the process group and the
+terminal as a command would, so
+.BR background ", " exclusive ", " cleanup ", " "workforest stop" ,
+and the running record apply to it unchanged;
+.B workforest stop
+on a group stops every member, waits for all their cleanups, and then
+runs the group's own.
+A group takes no extra arguments.
+Members are named, never written inline, and keep their own settings and
+records: a group may name another group (a cycle is a configuration
+error),
+.B workforest stop
+on a member stops it out from under a running group, and a member
+already running in the worktree fails its step.
 .TP
 .B background
 Detach by default, as
@@ -202,7 +235,7 @@ alone.
 .TP
 .B stop_timeout
 This script's grace period between SIGTERM and SIGKILL, overriding the
-top-level key.
+top-level key; a group's defaults to the longest of its members'.
 .RE
 .TP
 .B stop_timeout
@@ -385,6 +418,10 @@ scripts:
     background: true
     cleanup: docker compose down
     stop_timeout: 60
+  dev:
+    bulk: [backend, frontend]
+  fresh:
+    pipeline: [migrate, dev]
 .EE
 .SH FILES
 Fully commented reference configurations are installed with the package

@@ -46,14 +46,23 @@ class OpenerSpec:
 
 @dataclass(slots=True, frozen=True)
 class ScriptSpec:
-    """A `scripts` entry: what `wf run NAME` runs, where, whether only one
-    instance may run per project, and what to run once it has ended."""
+    """A `scripts` entry: what `wf run NAME` runs — a shell command, or a
+    group of other entries by name, `bulk` (in parallel) or `pipeline` (in
+    order); exactly one of the three — where, whether only one instance may
+    run per project, and what to run once it has ended."""
 
-    command: str
+    command: str | None = None
+    bulk: tuple[str, ...] | None = None  # members run at once; done when all are
+    pipeline: tuple[str, ...] | None = None  # members run in order; stops at the first failure
     background: bool = False  # detach, with output to a log file, instead of holding the terminal
     exclusive: bool = False  # starting it stops the running instance anywhere in the project
     cleanup: str | None = None  # runs after the command ends, however it ended
     stop_timeout: float | None = None  # seconds between SIGTERM and SIGKILL; None: the global one
+
+    @property
+    def members(self) -> tuple[str, ...]:
+        """The names a group runs; empty for a command."""
+        return self.bulk or self.pipeline or ()
 
 
 type ConfigEntry = CommandSpec | OpenerSpec | ScriptSpec
@@ -130,7 +139,13 @@ def _entry_data(spec: ConfigEntry) -> str | dict[str, Any]:
     if isinstance(spec, CommandSpec):
         return {"command": spec.command, "background": True} if spec.background else spec.command
     if isinstance(spec, ScriptSpec):
-        data: dict[str, Any] = {"command": spec.command}
+        data: dict[str, Any] = {}
+        if spec.command is not None:
+            data["command"] = spec.command
+        if spec.bulk is not None:
+            data["bulk"] = list(spec.bulk)
+        if spec.pipeline is not None:
+            data["pipeline"] = list(spec.pipeline)
         if spec.background:
             data["background"] = True
         if spec.exclusive:
@@ -151,7 +166,11 @@ def _entry_data(spec: ConfigEntry) -> str | dict[str, Any]:
 def _normalize_entry(entry: type[ConfigEntry], value: str | dict[str, Any]) -> ConfigEntry:
     if isinstance(value, str):
         return entry(command=value)
-    return entry(**{_field_name(key): item for key, item in value.items()})
+    kwargs: dict[str, Any] = {
+        _field_name(key): tuple(item) if isinstance(item, list) else item
+        for key, item in value.items()
+    }
+    return entry(**kwargs)
 
 
 def _parse_file(path: Path) -> dict[str, Any]:
@@ -201,6 +220,14 @@ def _is_positive_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
 
 
+def _is_name_list(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, str) and item.strip() for item in value)
+    )
+
+
 def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: Path) -> None:
     if entry is None:
         return
@@ -223,6 +250,9 @@ def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: 
             raise ConfigError(f"{where}: {field_name!r} must be a string")
     if "command" in entry and not entry["command"].strip():
         raise ConfigError(f"{where}: 'command' must not be empty")
+    for field_name in ("bulk", "pipeline"):
+        if field_name in entry and not _is_name_list(entry[field_name]):
+            raise ConfigError(f"{where}: {field_name!r} must be a non-empty list of script names")
     if "wrap" in entry and not isinstance(entry["wrap"], str | None):
         raise ConfigError(f"{where}: 'wrap' must be a string")
     if "background" in entry and not isinstance(entry["background"], bool):
@@ -238,6 +268,11 @@ def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: 
     if spec.entry is OpenerSpec:
         if ("command" in entry) == ("from" in entry):
             raise ConfigError(f"{where}: exactly one of 'command' and 'from' is required")
+    elif spec.entry is ScriptSpec:
+        if sum(key in entry for key in ("command", "bulk", "pipeline")) != 1:
+            raise ConfigError(
+                f"{where}: exactly one of 'command', 'bulk', and 'pipeline' is required"
+            )
     elif "command" not in entry:
         raise ConfigError(f"{where}: 'command' is required")
     if "wrap" in entry and "background" in entry:
@@ -247,11 +282,16 @@ def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: 
         )
 
 
-def _validate_references(openers: dict[str, OpenerSpec], wrappers: dict[str, CommandSpec]) -> None:
+def _validate_references(
+    openers: dict[str, OpenerSpec],
+    wrappers: dict[str, CommandSpec],
+    scripts: dict[str, ScriptSpec],
+) -> None:
     """Cross-entry checks on the merged result: a `from` names an opener
     that has a command of its own (one level — no chains, so no cycles, and
-    a target removed by a higher layer is caught here), and a `wrap` names a
-    wrapper."""
+    a target removed by a higher layer is caught here), a `wrap` names a
+    wrapper, and a group's members name scripts, once each, without
+    forming a cycle (a member removed by a higher layer is caught here)."""
     for name, spec in openers.items():
         where = f"openers.{name}"
         if spec.from_ is not None:
@@ -267,6 +307,23 @@ def _validate_references(openers: dict[str, OpenerSpec], wrappers: dict[str, Com
         if spec.wrap and spec.wrap not in wrappers:
             known = ", ".join(sorted(wrappers)) or "none defined"
             raise ConfigError(f"{where}: unknown wrapper {spec.wrap!r} (available: {known})")
+    for name in scripts:
+        _validate_members(scripts, name, trail=(name,))
+
+
+def _validate_members(scripts: dict[str, ScriptSpec], name: str, *, trail: tuple[str, ...]) -> None:
+    where = f"scripts.{name}"
+    members = scripts[name].members
+    for member in members:
+        if member not in scripts:
+            known = ", ".join(sorted(scripts))
+            raise ConfigError(f"{where}: member {member!r} names no script (known: {known})")
+        if members.count(member) > 1:
+            raise ConfigError(f"{where}: member {member!r} is listed more than once")
+        if member in trail:
+            chain = " -> ".join((*trail, member))
+            raise ConfigError(f"{where}: groups form a cycle: {chain}")
+        _validate_members(scripts, member, trail=(*trail, member))
 
 
 def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -327,7 +384,7 @@ def load_config(main_worktree: Path | None = None) -> Config:
             merged[key] = {
                 name: _normalize_entry(spec.entry, value) for name, value in merged[key].items()
             }
-    _validate_references(merged["openers"], merged["wrappers"])
+    _validate_references(merged["openers"], merged["wrappers"], merged["scripts"])
     return Config(**merged, sources=sources)
 
 

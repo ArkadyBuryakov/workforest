@@ -19,3 +19,15 @@
   environment variables, or exit codes updates both README.md and the
   affected page in the same change. `tests/test_man.py` catches drift from
   `cli.py`, not from prose — keep the wording in sync by hand.
+- Script groups (`hooks.py`): a `bulk`/`pipeline` runs under a forked
+  supervisor that leads the process group and takes the tty exactly like a
+  command, so records, `wf stop`, `exclusive`, `cleanup`, and `-b` need no
+  group-specific code. Bulk members must never take the tty (only one
+  group can own it); they run in the supervisor's process group so a
+  signal to the group reaches them all, write to a pty when stderr is a
+  terminal (so their programs keep colors) and to a pipe otherwise, and
+  the supervisor relays their lines prefixed. A bulk always waits for
+  every member. An outcome of `-SIGINT` or exit 130 is an interruption
+  (warning, `wf` dies by SIGINT), never a failure. Forked-child bodies are
+  `# pragma: no cover`; the logic lives in tested pure helpers
+  (`_Prefixer`, `_pump`, `_bulk_outcome`, `_run_step`).

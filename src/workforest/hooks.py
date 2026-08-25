@@ -13,19 +13,31 @@ script runs the same way under a detached supervisor (a fork of us) with
 its output in a log file. The `cleanup` command then runs however the
 command ended, and only afterwards is the job record removed (that
 removal is what a stopper waits for).
+
+A group (`bulk`, `pipeline`) is run by a supervisor — a fork of us that
+leads the process group and takes the terminal exactly as a command
+would, so everything above applies to it unchanged. Inside, a pipeline
+runs its members one after another like consecutive `wf run`s; a bulk
+forks a runner per member, gives each an output channel of its own, and
+relays their lines to its stderr prefixed with the member's name. Members
+keep their own records, cleanup, and `exclusive` semantics: `wf stop
+MEMBER` works while a group runs it.
 """
 
 import contextlib
+import errno
 import io
 import os
+import selectors
 import shlex
 import signal
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
@@ -199,11 +211,10 @@ def _take_terminal_in_child(fd: int) -> None:  # pragma: no cover - runs in the 
     _give_terminal(fd, os.getpgrp())
 
 
-def _wait(process: subprocess.Popen[bytes], *, tty_fd: int | None) -> int:
-    """Wait for the command's group leader, forwarding the signals we get to
-    the whole group. On a terminal, a stopped command (Ctrl-Z) stops us
-    too — the shell then owns the job — and is resumed with us."""
-    pgid = process.pid
+def _wait(pgid: int, *, tty_fd: int | None) -> int:
+    """Wait for the group leader `pgid` (our child), forwarding the signals
+    we get to the whole group. On a terminal, a stopped command (Ctrl-Z)
+    stops us too — the shell then owns the job — and is resumed with us."""
 
     def forward(signum: int, _frame: object) -> None:
         jobs.signal_group(pgid, signal.Signals(signum))
@@ -219,15 +230,12 @@ def _wait(process: subprocess.Popen[bytes], *, tty_fd: int | None) -> int:
                 _give_terminal(tty_fd, pgid)
                 jobs.signal_group(pgid, signal.SIGCONT)
                 continue
-            code = os.waitstatus_to_exitcode(status)
-            break
+            return os.waitstatus_to_exitcode(status)
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
         if tty_fd is not None:  # pragma: no cover - needs a terminal
             _give_terminal(tty_fd, os.getpgrp())
-    process.returncode = code  # reaped here, not by Popen
-    return code
 
 
 @dataclass(slots=True, frozen=True)
@@ -239,21 +247,41 @@ class _JobResult:
 @dataclass(slots=True, frozen=True)
 class _Job:
     """One `wf run` invocation, resolved: the script, its final command
-    text, and where it runs and is recorded."""
+    text (empty for a group), and where it runs and is recorded. `tty`
+    is whether it may take the terminal's foreground: a bulk's members
+    may not, since only one group can have it."""
 
+    config: Config
     spec: ScriptSpec
     name: str
     snippet: str
     cwd: Path
     env: dict[str, str]
     record_path: Path
+    tty: bool = True
 
 
-def _run_command(job: _Job) -> _JobResult:
-    """Run the command in its own process group with a job record on disk
-    for as long as it runs."""
-    tty_fd = _controlling_tty()
-    with _diverted_output() as sink:
+def _fileno(stream: int | IO[bytes]) -> int:
+    return stream if isinstance(stream, int) else stream.fileno()
+
+
+def _redirect_output(stdout: int | IO[bytes], stderr: int | IO[bytes] | None) -> None:
+    """In a forked child: point fds 1/2 (and the Python streams, which under
+    a test harness may wrap something else entirely) at the given sinks;
+    a None stderr keeps the inherited one. The streams never own their
+    descriptor: a redirect within a redirect (a bulk runner under its
+    supervisor) drops the previous objects, which must not close 1 and 2."""
+    os.dup2(_fileno(stdout), 1)
+    if stderr is not None:
+        os.dup2(_fileno(stderr), 2)
+    sys.stdout = os.fdopen(1, "w", buffering=1, closefd=False)
+    sys.stderr = os.fdopen(2, "w", buffering=1, closefd=False)
+
+
+def _spawn(job: _Job, sink: _Sink, tty_fd: int | None) -> int:
+    """Start the job as the leader of a new process group and return its
+    pid: `$SHELL -c` for a command, a forked supervisor for a group."""
+    if job.spec.command is not None:
         try:
             process = subprocess.Popen(
                 [_shell(), "-c", job.snippet],
@@ -270,19 +298,37 @@ def _run_command(job: _Job) -> _JobResult:
             raise WorkforestError(
                 f"cannot run {job.name!r} via $SHELL: {exc.strerror or exc}"
             ) from exc
+        return process.pid
+    sys.stdout.flush()
+    sys.stderr.flush()
+    pid = os.fork()
+    if pid == 0:  # pragma: no cover - the forked child
+        _supervise_group(job, sink, tty_fd)
+    # Both sides set the group so that it exists whichever runs first.
+    with contextlib.suppress(OSError):
+        os.setpgid(pid, pid)
+    return pid
+
+
+def _run_command(job: _Job) -> _JobResult:
+    """Run the job in its own process group with a job record on disk for
+    as long as it runs."""
+    tty_fd = _controlling_tty() if job.tty else None
+    with _diverted_output() as sink:
+        pgid = _spawn(job, sink, tty_fd)
         jobs.write_record(
             job.record_path,
             jobs.JobRecord(
                 script=job.name,
                 worktree=str(job.cwd),
                 branch=job.env.get("WF_BRANCH", ""),
-                pgid=process.pid,
+                pgid=pgid,
                 owner_pid=os.getpid(),
                 boot_id=jobs.boot_id(),
                 started_at=time.time(),
             ),
         )
-        code = _wait(process, tty_fd=tty_fd)
+        code = _wait(pgid, tty_fd=tty_fd)
     record = jobs.read_record(job.record_path)
     return _JobResult(code, record.stopped_by if record else None)
 
@@ -306,18 +352,50 @@ def _run_to_completion(job: _Job) -> _JobResult:
     return result
 
 
-def _raise_for(result: _JobResult, name: str) -> None:
-    """A command killed by SIGINT ends us the way Ctrl-C would, so a shell
-    loop around `wf run` aborts."""
-    if result.code == -signal.SIGINT:
-        raise KeyboardInterrupt
+def _interrupted(code: int) -> bool:
+    """Killed by SIGINT — or, as a shell ends after its child was, exit
+    128+SIGINT: Ctrl-C reached the command either way."""
+    return code in (-signal.SIGINT, 128 + signal.SIGINT)
+
+
+def _failure(result: _JobResult, name: str) -> str | None:
+    """What went wrong, or None for success or an interruption."""
+    if result.code == 0 or _interrupted(result.code):
+        return None
     if result.code < 0:
         message = f"script {name!r} was killed by {signal.Signals(-result.code).name}"
         if result.stopped_by:
             message += f" (stopped by {result.stopped_by})"
+        return message
+    return f"script {name!r} failed with exit code {result.code}"
+
+
+def _raise_for(result: _JobResult, name: str) -> None:
+    """An interrupted command ends us the way Ctrl-C would, so a shell
+    loop around `wf run` aborts."""
+    if _interrupted(result.code):
+        output.warn(f"script {name!r} was interrupted")
+        raise KeyboardInterrupt
+    message = _failure(result, name)
+    if message is None:
+        return
+    if result.code < 0:
         raise ScriptKilledError(message, -result.code)
-    if result.code != 0:
-        raise WorkforestError(f"script {name!r} failed with exit code {result.code}")
+    raise WorkforestError(message)
+
+
+def _exit_with(code: int) -> None:  # pragma: no cover - ends a forked child
+    """End a forked child the way its command ended: by the same signal
+    for a signal death (so the parent reports it as such, and SIGINT
+    keeps aborting shell loops), else with the status. Never returns."""
+    with contextlib.suppress(Exception):
+        sys.stderr.flush()
+    if code < 0:
+        with contextlib.suppress(OSError, ValueError):
+            signal.signal(-code, signal.SIG_DFL)
+            os.kill(os.getpid(), -code)
+        code = 128 - code  # the signal is blocked or ignored: fall back to the convention
+    os._exit(code)
 
 
 def _supervise_detached(job: _Job, log_fd: int) -> None:  # pragma: no cover - the forked child
@@ -329,14 +407,9 @@ def _supervise_detached(job: _Job, log_fd: int) -> None:  # pragma: no cover - t
         os.setsid()
         devnull = os.open(os.devnull, os.O_RDONLY)
         os.dup2(devnull, 0)
-        os.dup2(log_fd, 1)
-        os.dup2(log_fd, 2)
         os.close(devnull)
+        _redirect_output(log_fd, log_fd)
         os.close(log_fd)
-        # Python-level streams may wrap something else entirely (a test
-        # harness's capture); rebind them to the descriptors just set up.
-        sys.stdout = os.fdopen(1, "w", buffering=1)
-        sys.stderr = os.fdopen(2, "w", buffering=1)
         result = _run_to_completion(job)
         code = result.code if result.code >= 0 else 128 - result.code
         if result.stopped_by:
@@ -377,6 +450,276 @@ def _start_background(job: _Job, log_path: Path) -> None:
     output.success(f"started {job.name!r} in the background (pid {pid}, log: {log_path})")
 
 
+# --- groups -----------------------------------------------------------------
+
+
+def _supervise_group(job: _Job, sink: _Sink, tty_fd: int | None) -> None:  # pragma: no cover
+    """The group supervisor: our fork, leading a group of its own and — on
+    a terminal — holding its foreground, as a command would. Runs the
+    members and ends the way the group's outcome says; never returns."""
+    code = 1
+    try:
+        os.setpgid(0, 0)
+        if tty_fd is not None:
+            _give_terminal(tty_fd, os.getpgrp())
+        _redirect_output(sink.stdout, sink.stderr)
+        code = _run_pipeline(job) if job.spec.pipeline is not None else _run_bulk(job)
+    except KeyboardInterrupt:
+        code = -signal.SIGINT
+    except BaseException as exc:  # nothing may escape into the parent's code path
+        output.error(str(exc) or type(exc).__name__)
+    finally:
+        _exit_with(code)
+
+
+def _run_step(job: _Job) -> int:
+    """A member's run inside a supervisor: `wf run MEMBER`, reporting the
+    way cli.py does, but returning the outcome — the exit status, or -N
+    for a death by signal N — instead of raising."""
+    try:
+        if job.spec.background:
+            common_dir = gitutil.git_common_dir(job.cwd)
+            _start_background(job, jobs.log_path(common_dir, job.name, job.cwd))
+            return 0
+        output.success(_start_message(job))
+        result = _run_to_completion(job)
+    except WorkforestError as exc:
+        output.error(str(exc))
+        return exc.exit_code
+    if _interrupted(result.code):
+        output.warn(f"script {job.name!r} was interrupted")
+        return -signal.SIGINT
+    message = _failure(result, job.name)
+    if message is not None:
+        output.error(message)
+    return result.code
+
+
+def _run_pipeline(job: _Job) -> int:  # pragma: no cover - runs in the supervisor
+    """Members one after another, each a `wf run` of its own with the
+    terminal; the first failure ends the pipeline with its outcome."""
+    assert job.spec.pipeline is not None
+    for index, member in enumerate(job.spec.pipeline, 1):
+        output.info(f"{job.name!r} step {index}/{len(job.spec.pipeline)}: {member}")
+        try:
+            step = _prepare(job.config, member, cwd=job.cwd, env=job.env, tty=job.tty)
+        except WorkforestError as exc:
+            output.error(str(exc))
+            return exc.exit_code
+        code = _run_step(step)
+        if code != 0:
+            return code
+    return 0
+
+
+@dataclass(slots=True)
+class _Runner:
+    """A bulk member's runner process and the read end of its output
+    channel; `fd` is -1 once the channel is closed."""
+
+    name: str
+    pid: int
+    fd: int
+    code: int | None = None  # its outcome once reaped: exit status, or -N for signal N
+
+
+_PALETTE = ("\033[36m", "\033[35m", "\033[34m", "\033[32m", "\033[33m", "\033[91m")
+_RESET = "\033[0m"
+
+
+@dataclass(slots=True)
+class _Prefixer:
+    """Turns a bulk member's raw output into lines prefixed with its name,
+    padded so the prefixes line up and colored when stderr is a terminal.
+    Bytes are kept until their line completes; a pty's `\r\n` becomes
+    `\n`."""
+
+    names: tuple[str, ...]
+    color: bool
+    _pending: dict[str, bytes] = field(default_factory=dict)
+
+    def prefix(self, name: str) -> str:
+        width = max(len(n) for n in self.names)
+        label = f"{name:<{width}} | "
+        if self.color:
+            paint = _PALETTE[self.names.index(name) % len(_PALETTE)]
+            return f"{paint}{label}{_RESET}"
+        return label
+
+    def feed(self, name: str, data: bytes) -> str:
+        """Complete lines out of `data` (and what was pending), prefixed."""
+        buffered = self._pending.pop(name, b"") + data
+        *lines, rest = buffered.split(b"\n")
+        if rest:
+            self._pending[name] = rest
+        prefix = self.prefix(name)
+        return "".join(
+            f"{prefix}{line.removesuffix(b'\r').decode(errors='replace')}\n" for line in lines
+        )
+
+    def flush(self, name: str) -> str:
+        """A final partial line, terminated."""
+        return self.feed(name, b"\n") if self._pending.get(name) else ""
+
+
+def _open_channel(*, tty: bool) -> tuple[int, int]:
+    """(read end, write end) of a member's output channel: a pseudo-terminal
+    when our stderr is one, so the member's programs keep coloring their
+    output as they do for `wf run`; a pipe otherwise (a log, CI)."""
+    if not tty:
+        return os.pipe()
+    master, slave = os.openpty()
+    with contextlib.suppress(OSError, termios.error):
+        termios.tcsetwinsize(slave, termios.tcgetwinsize(sys.stderr.fileno()))
+    return master, slave
+
+
+def _drain(runner: _Runner, prefixer: _Prefixer, sink: IO[str]) -> None:
+    """Relay what the channel holds; close it at EOF (a pty reports that as
+    EIO once every writer is gone)."""
+    while runner.fd >= 0:
+        try:
+            data = os.read(runner.fd, 65536)
+        except BlockingIOError:
+            return
+        except OSError as exc:
+            if exc.errno != errno.EIO:
+                raise
+            data = b""
+        if data:
+            sink.write(prefixer.feed(runner.name, data))
+            continue
+        sink.write(prefixer.flush(runner.name))
+        os.close(runner.fd)
+        runner.fd = -1
+    sink.flush()
+
+
+def _pump(runners: list[_Runner], prefixer: _Prefixer, sink: IO[str]) -> None:
+    """Relay every runner's output to `sink` until all have ended and their
+    channels are drained. A channel a reaped runner left open (a daemon it
+    spawned still holds the write end) is drained once more and closed."""
+    selector = selectors.DefaultSelector()
+    for runner in runners:
+        os.set_blocking(runner.fd, False)
+        selector.register(runner.fd, selectors.EVENT_READ, runner)
+    while any(runner.code is None or runner.fd >= 0 for runner in runners):
+        for key, _ in selector.select(timeout=0.05):
+            runner = key.data
+            _drain(runner, prefixer, sink)
+            if runner.fd < 0:
+                selector.unregister(key.fd)
+        for runner in runners:
+            if runner.code is not None:
+                continue
+            reaped, status = os.waitpid(runner.pid, os.WNOHANG)
+            if not reaped:
+                continue
+            runner.code = os.waitstatus_to_exitcode(status)
+            if runner.fd >= 0:
+                fd = runner.fd
+                _drain(runner, prefixer, sink)
+                if runner.fd >= 0:
+                    os.close(runner.fd)
+                    runner.fd = -1
+                selector.unregister(fd)
+        sink.flush()
+    selector.close()
+
+
+def _describe_outcome(code: int) -> str:
+    if code < 0:
+        return f"was killed by {signal.Signals(-code).name}"
+    return f"failed with exit code {code}"
+
+
+def _bulk_outcome(name: str, runners: list[_Runner]) -> int:
+    """The group's outcome from its members': success only when all
+    succeeded; an interruption wins (Ctrl-C stays Ctrl-C, and each runner
+    has already said so), else any other signal death, else the first
+    failing member's status."""
+    codes = {runner.name: runner.code for runner in runners if runner.code}
+    if any(_interrupted(code or 0) for code in codes.values()):
+        return -signal.SIGINT
+    for member, code in codes.items():
+        output.error(f"member {member!r} of {name!r} {_describe_outcome(code or 0)}")
+    return (
+        next((code for code in codes.values() if code and code < 0), None)
+        or next(iter(codes.values()), 0)
+        or 0
+    )
+
+
+def _run_member(job: _Job, write_fd: int) -> None:  # pragma: no cover - the forked child
+    """A bulk member's runner: reads nothing, writes to its channel, and
+    ends the way the member did; never returns."""
+    code = 1
+    try:
+        devnull = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(devnull, 0)
+        os.close(devnull)
+        _redirect_output(write_fd, write_fd)
+        os.close(write_fd)
+        code = _run_step(job)
+    except KeyboardInterrupt:
+        code = -signal.SIGINT
+    except BaseException as exc:
+        output.error(str(exc) or type(exc).__name__)
+    finally:
+        _exit_with(code)
+
+
+def _run_bulk(job: _Job) -> int:  # pragma: no cover - runs in the supervisor
+    """All members at once, each under a runner of its own that shares our
+    process group (so a signal to the group reaches every runner, which
+    forwards it to its member) but not the terminal; their output is
+    relayed here, line by line, prefixed. Done when all have ended."""
+    assert job.spec.bulk is not None
+    on_tty = sys.stderr.isatty()
+    runners: list[_Runner] = []
+    for member in job.spec.bulk:
+        step = _prepare(job.config, member, cwd=job.cwd, env=job.env, tty=False)
+        read_fd, write_fd = _open_channel(tty=on_tty)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            _run_member(step, write_fd)
+        os.close(write_fd)
+        runners.append(_Runner(member, pid, read_fd))
+    # Signals for us reach the runners too (same group); we only outlive
+    # them to relay the rest of their output. Ctrl-Z, which the terminal
+    # sends the group, is passed on to the members' groups and back.
+    for signum in _FORWARDED_SIGNALS:
+        signal.signal(signum, lambda *_: None)
+    signal.signal(signal.SIGTSTP, lambda *_: _suspend_members(runners, job))
+    signal.signal(signal.SIGCONT, lambda *_: _signal_members(runners, job, signal.SIGCONT))
+    prefixer = _Prefixer(job.spec.bulk, color=output.colors_enabled())
+    _pump(runners, prefixer, sys.stderr)
+    return _bulk_outcome(job.name, runners)
+
+
+def _signal_members(
+    runners: list[_Runner], job: _Job, signum: signal.Signals
+) -> None:  # pragma: no cover - runs in the supervisor's signal handlers
+    common_dir = gitutil.git_common_dir(job.cwd)
+    for runner in runners:
+        if runner.code is not None:
+            continue
+        record = jobs.read_record(jobs.record_path(common_dir, runner.name, job.cwd))
+        if record is not None:
+            jobs.signal_group(record.pgid, signum)
+
+
+def _suspend_members(runners: list[_Runner], job: _Job) -> None:  # pragma: no cover
+    _signal_members(runners, job, signal.SIGTSTP)
+    os.kill(os.getpid(), signal.SIGSTOP)
+
+
+# --- entry points -------------------------------------------------------------
+
+
 def _orphan_cleanup(
     spec: ScriptSpec, name: str, env: dict[str, str], record: jobs.JobRecord
 ) -> None:
@@ -403,7 +746,14 @@ def _resolve_script(config: Config, name: str) -> ScriptSpec:
 
 
 def _stop_timeout(config: Config, spec: ScriptSpec) -> float:
-    return config.stop_timeout if spec.stop_timeout is None else spec.stop_timeout
+    """The entry's own, else — for a group — the longest any member may
+    need (its members are stopped through it), else the global one."""
+    if spec.stop_timeout is not None:
+        return spec.stop_timeout
+    members = [config.scripts[m] for m in spec.members if m in config.scripts]
+    if members:
+        return max(_stop_timeout(config, member) for member in members)
+    return config.stop_timeout
 
 
 def _stop_jobs(
@@ -443,27 +793,29 @@ def stop_script(
     _stop_jobs(config, name, running, by=f"`wf stop` in {cwd.name!r}", env=env)
 
 
-def run_named_script(
+def _start_message(job: _Job) -> str:
+    what = job.snippet if job.spec.command is not None else ", ".join(job.spec.members)
+    return f"running {job.name!r} in {job.cwd}: {what}"
+
+
+def _prepare(
     config: Config,
     name: str,
     *,
     cwd: Path,
     env: dict[str, str],
     extra_args: list[str] | None = None,
-    background: bool | None = None,
-) -> None:
-    """Run a `scripts` entry from the merged config; raise on failure.
-
-    extra_args are shell-quoted and appended to the command, so
-    `wf run make check` runs `make check` for a script defined as `make`.
-    An `exclusive` script first stops its running instance anywhere in the
-    project (that instance's cleanup included); any other script refuses to
-    start while it is already running in this worktree. `background`
-    overrides the entry's own setting.
-    """
+    tty: bool = True,
+) -> _Job:
+    """Resolve a script and clear the way for it: an `exclusive` one first
+    stops its running instance anywhere in the project (that instance's
+    cleanup included); any other refuses to start while it is already
+    running in this worktree."""
     spec = _resolve_script(config, name)
-    snippet = spec.command
+    snippet = spec.command or ""
     if extra_args:
+        if spec.command is None:
+            raise WorkforestError(f"{name!r} is a group of scripts and takes no arguments")
         snippet = f"{snippet} {' '.join(shlex.quote(arg) for arg in extra_args)}"
     common_dir = gitutil.git_common_dir(cwd)
     if spec.exclusive:
@@ -485,9 +837,28 @@ def run_named_script(
                 f"{name!r} is already running in {cwd.name!r} (pid {existing.pgid}); "
                 f"`wf stop {name}` first"
             )
-    job = _Job(spec, name, snippet, cwd, env, record_path)
-    if spec.background if background is None else background:
-        _start_background(job, jobs.log_path(common_dir, name, cwd))
+    return _Job(config, spec, name, snippet, cwd, env, record_path, tty)
+
+
+def run_named_script(
+    config: Config,
+    name: str,
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    extra_args: list[str] | None = None,
+    background: bool | None = None,
+) -> None:
+    """Run a `scripts` entry from the merged config; raise on failure.
+
+    extra_args are shell-quoted and appended to the command, so
+    `wf run make check -j2` runs `make check -j2` for a script defined as
+    `make`; a group takes none. `background` overrides the entry's own
+    setting.
+    """
+    job = _prepare(config, name, cwd=cwd, env=env, extra_args=extra_args)
+    if job.spec.background if background is None else background:
+        _start_background(job, jobs.log_path(gitutil.git_common_dir(cwd), name, cwd))
         return
-    output.success(f"running {name!r} in {cwd}: {snippet}")
+    output.success(_start_message(job))
     _raise_for(_run_to_completion(job), name)
