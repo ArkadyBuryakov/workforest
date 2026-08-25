@@ -44,6 +44,12 @@ jobs:
           wf --version
           workforest shell-init bash | bash -n
           workforest shell-init zsh | head -1 | grep -q Workforest
+          test -f "$(brew --prefix)/share/man/man1/workforest.1"
+          test -f "$(brew --prefix)/share/man/man1/wf.1"
+          test -f "$(brew --prefix)/share/man/man5/workforest.5"
+          test -f "$(brew --prefix)/share/man/man5/wf.5"
+          # the formula relocates them, so shell-init must not touch MANPATH
+          ! workforest shell-init bash | grep -q MANPATH
 
       - name: Push to tap
         env:

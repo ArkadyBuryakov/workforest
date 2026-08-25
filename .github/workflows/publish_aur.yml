@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Install system dependencies
         run: >
-          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap
+          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap man-db
           python python-yaml python-build python-installer python-wheel python-hatchling
 
       - uses: actions/checkout@v4
@@ -41,6 +41,7 @@ jobs:
           pacman -U --noconfirm workforest-*.pkg.tar.zst
           workforest --version
           wf --version
+          man -w workforest wf 5 workforest wf
 
       - name: Push to AUR
         env:

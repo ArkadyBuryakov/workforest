@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from workforest import commands, completions
+from workforest import commands, completions, shellinit
 
 from .conftest import CliResult, Repo
 
@@ -94,6 +94,72 @@ class TestShellInit:
         result = run_cli("shell-init")
         assert result.code == 1
         assert "fish" in result.err
+
+
+class TestManpath:
+    """Venv installs (uv tool, pipx) hold the man pages where man(1) never
+    looks; shell-init adds that directory to $MANPATH, and only then."""
+
+    @staticmethod
+    def venv_with_pages(root: Path) -> Path:
+        (root / "share" / "man" / "man1").mkdir(parents=True)
+        (root / "share" / "man" / "man1" / "workforest.1").write_text(".TH X 1\n")
+        return root
+
+    def test_snippet_for_venv_prefix(self, tmp_path: Path) -> None:
+        snippet = shellinit.manpath_snippet(self.venv_with_pages(tmp_path))
+        assert f"export MANPATH={tmp_path}/share/man" in snippet
+
+    def test_nothing_without_pages(self, tmp_path: Path) -> None:
+        assert shellinit.manpath_snippet(tmp_path) == ""
+
+    def test_nothing_for_system_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # /usr/share/man is on every default man path; never touch MANPATH for it
+        monkeypatch.setattr(Path, "is_file", lambda self: True)
+        assert shellinit.manpath_snippet(Path("/usr")) == ""
+
+    def test_shell_init_embeds_snippet(
+        self, tmp_path: Path, run_cli: Run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "prefix", str(self.venv_with_pages(tmp_path)))
+        result = run_cli("shell-init", "bash")
+        assert result.code == 0
+        assert f"MANPATH={tmp_path}/share/man" in result.out
+        assert result.out.startswith("# Workforest shell integration")
+        assert "_workforest_complete" in result.out  # completion still follows
+
+    @pytest.mark.parametrize(
+        "shell",
+        [
+            "bash",
+            pytest.param(
+                "zsh",
+                marks=pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed"),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("before", "after"),
+        [
+            (None, "{man}:"),  # unset: trailing colon = "then the system default"
+            ("/x/man", "{man}:/x/man"),
+            ("{man}:/x/man", "{man}:/x/man"),  # already there: untouched
+        ],
+    )
+    def test_snippet_in_real_shell(
+        self, shell: str, before: str | None, after: str | None, tmp_path: Path
+    ) -> None:
+        prefix = self.venv_with_pages(tmp_path / "it's a venv")  # quoting survives
+        man = str(prefix / "share" / "man")
+        script = shellinit.manpath_snippet(prefix) + 'printf "%s" "$MANPATH"\n'
+        env = {"PATH": os.environ["PATH"]}
+        if before is not None:
+            env["MANPATH"] = before.format(man=man)
+        result = subprocess.run(
+            [shell, "-c", script], env=env, capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == after.format(man=man)
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,500 @@
+.\" Manual page for workforest(1). Hand-written roff (man macros): no build
+.\" step, so the same file ships in the wheel, the AUR package, and the
+.\" Homebrew formula. tests/test_man.py keeps it in sync with cli.py.
+.\" wf.1 is a .so link to this page; workforest.5/wf.5 cover the config files.
+.TH WORKFOREST 1 "" workforest "User Commands"
+.SH NAME
+workforest, wf \- git worktree forest management
+.SH SYNOPSIS
+.SY workforest
+.RB [ \-\-version ]
+.RB [ \-\-help ]
+.YS
+.SY "workforest create"
+.RI [ BRANCH ]
+.RB [ \-o
+.IR OPENER ]
+.RB [ \-w
+.IR WRAPPER ]
+.RB [ \-p
+.IR PATH ]
+.RB [ \-\-no\-hooks ]
+.RB [ \-\-no\-open ]
+.YS
+.SY "workforest open"
+.RI [ NAME ]
+.RB [ \-o
+.IR OPENER ]
+.RB [ \-w
+.IR WRAPPER ]
+.RB [ \-p
+.IR PATH ]
+.YS
+.SY "workforest list"
+.RB [ \-\-porcelain ]
+.YS
+.SY "workforest delete"
+.IR NAME .\|.\|.
+.RB [ \-\-force ]
+.RB [ \-\-delete\-branch " | " \-\-keep\-branch ]
+.YS
+.SY "workforest checkout"
+.I NAME
+.RB [ \-\-force ]
+.YS
+.SY "workforest run"
+.I SCRIPT
+.RI [ ARGS .\|.\|.]
+.YS
+.SY "workforest tui"
+.RI [ MODE ]
+.YS
+.SY "workforest init"
+.RB [ \-\-local ]
+.YS
+.SY "workforest config"
+.RB [ \-\-json ]
+.YS
+.SY "workforest shell-init"
+.RB [ bash | zsh ]
+.YS
+.SY "workforest claude copy-session"
+.I SESSION_ID
+.YS
+.SY workforest
+.I OPENER
+.RI [ NAME ]
+.RB [ \-p
+.IR PATH ]
+.YS
+.SH DESCRIPTION
+.B workforest
+manages a
+.IR forest :
+one main checkout of a git repository plus any number of disposable,
+per-branch worktrees in a predictable location, each created, set up,
+opened, and cleaned up with one command.
+.PP
+.EX
+~/dev/
+|\-\- api/                  # main checkout
+\(ga\-\- worktrees/
+    \(ga\-\- api/
+        |\-\- feature\-x/    # wf create feature\-x
+        \(ga\-\- fix\-y/
+.EE
+.PP
+A worktree's
+.I name
+is the last path component of its branch
+.RB ( feature/x " \(-> " x ),
+which is also its directory name under the worktrees directory.
+Only worktrees located directly inside that directory are
+.IR managed ;
+every command operates on managed worktrees of the repository that
+contains the current directory.
+.PP
+.B wf
+is an alias for
+.BR workforest .
+After
+.B shell-init
+(see
+.BR "SHELL INTEGRATION" )
+it is a shell function that can change the calling shell's directory.
+.SH COMMANDS
+.SS create [\fIBRANCH\fR]
+Create (or reuse) a worktree for
+.I BRANCH
+and open it.
+.I BRANCH
+defaults to the current branch.
+It is resolved in order: an existing local branch; a branch on exactly
+one remote (the worktree tracks it); otherwise a brand-new local branch.
+.I REMOTE/BRANCH
+picks the remote explicitly, which is required when several remotes
+carry the same branch name; when that local name is already taken,
+.B create
+prompts for a different one.
+.PP
+In a fresh worktree the project's
+.B symlinks
+are created and its
+.B setup_scripts
+run (see
+.BR workforest (5))
+before the opener starts.
+A branch that is already checked out somewhere is opened there instead.
+.TP
+.BR \-o " \fIOPENER\fP, " \-\-opener " \fIOPENER\fP"
+An
+.B openers
+name from the configuration, or a shell command.
+Default: the
+.B opener
+key, then
+.BR $VISUAL ,
+then
+.BR $EDITOR .
+.TP
+.BR \-w " \fIWRAPPER\fP, " \-\-wrap " \fIWRAPPER\fP"
+Run the opener through this
+.B wrappers
+entry, overriding the opener's own
+.B wrap
+setting.
+An empty value
+.RB ( "\-w ''" )
+runs it without any wrapper.
+.TP
+.BR \-p " \fIPATH\fP, " \-\-path " \fIPATH\fP"
+Path inside the worktree, passed to the opener as
+.BR $WF_TARGET .
+Default:
+.BR . .
+.TP
+.B \-\-no\-hooks
+Skip symlinks and setup scripts.
+.TP
+.B \-\-no\-open
+Create only; do not open.
+.SS open [\fINAME\fR]
+Open an existing worktree with an opener.
+Without
+.IR NAME ,
+open the managed worktree the current directory is in.
+Takes the same
+.BR \-o ,
+.BR \-w ,
+and
+.B \-p
+options as
+.BR create .
+.SS list
+List managed worktrees: name, branch, clean/dirty state, and path.
+.TP
+.B \-\-porcelain
+Stable machine-readable output, one worktree per line:
+.IR NAME ,
+.IR BRANCH ,
+.IR PATH ,
+and
+.B 1
+(dirty) or
+.B 0
+(clean), separated by tabs.
+.SS delete \fINAME\fR...
+Delete one or more worktrees.
+Every name is resolved before anything is removed, so a typo fails the
+whole batch.
+A worktree with uncommitted changes is listed and confirmed first;
+afterwards, on a terminal, you are asked whether to delete its branch
+too.
+Deleting the worktree you are standing in moves the shell back to the
+main checkout.
+.TP
+.B \-\-force
+Skip the dirty-worktree confirmation.
+.TP
+.B \-\-delete\-branch
+Also delete the branch, without asking.
+.TP
+.B \-\-keep\-branch
+Never delete the branch.
+.SS checkout \fINAME\fR
+Collapse a worktree back into the main checkout: delete it, then check
+its branch out in the main worktree and move the shell there.
+.TP
+.B \-\-force
+Skip the dirty-worktree confirmation.
+.SS run \fISCRIPT\fR [\fIARGS\fR...]
+Run the named script from the merged configuration's
+.B scripts
+map, from the root of the current worktree.
+Extra arguments are shell-quoted and appended to the script command.
+See
+.B ENVIRONMENT
+for the variables scripts receive.
+.SS tui [\fIMODE\fR]
+Interactive mode, driven by
+.BR fzf (1).
+Running
+.B workforest
+with no arguments at all is the same as
+.BR "workforest tui" .
+.I MODE
+is the initial tab:
+.BR create ,
+.BR open ,
+.BR checkout ,
+or
+.B delete
+(plus
+.B claude
+when the integration is active); the default is
+.B open
+when the forest has worktrees, else
+.BR create .
+.PP
+Keys:
+.B Left
+/
+.B Right
+(or
+.BR Alt\-h " / " Alt\-l )
+switch tabs;
+.B Ctrl\-Left
+/
+.B Ctrl\-Right
+cycle the opener used by
+.B create
+and
+.BR open ;
+.B Enter
+accepts the selection (in
+.BR create ,
+a query that matches no branch names a new branch);
+.B Esc
+quits.
+The
+.B delete
+tab stays open after each deletion for bulk cleanup.
+.SS init
+Scaffold a fully commented
+.B .workforest.yaml
+project configuration in the main checkout.
+.TP
+.B \-\-local
+Place it in
+.B .vscode/
+or
+.B .idea/
+instead: an untracked, per-developer override.
+.SS config
+Show the merged configuration as YAML, followed by the files each layer
+came from.
+Works outside a repository too (project layers are then absent).
+.TP
+.B \-\-json
+Emit a JSON object with
+.B config
+and
+.B sources
+keys instead.
+.SS shell-init [bash|zsh]
+Print the shell integration for
+.BR bash " or " zsh
+(default: from
+.BR $SHELL ).
+See
+.BR "SHELL INTEGRATION" .
+.SS claude copy-session \fISESSION_ID\fR
+Copy a Claude Code session from the main worktree into the current one.
+The
+.B claude
+command exists only when
+.B ~/.claude
+is present.
+It is experimental: it edits Claude Code's private on-disk state, which
+is not a stable interface, so any Claude Code update may break it.
+.SH OPENER SHORTCUT
+Any first word that is not a subcommand is taken as an opener:
+.PP
+.EX
+workforest \fIOPENER\fR [\fINAME\fR] [\-p \fIPATH\fR]
+.EE
+.PP
+is
+.PP
+.EX
+workforest open [\fINAME\fR] \-o \fIOPENER\fR [\-p \fIPATH\fR]
+.EE
+.PP
+so
+.B wf edit api
+opens the
+.B api
+worktree with the
+.B edit
+opener, and
+.B wf lazygit
+runs
+.BR lazygit (1)
+in the current worktree.
+An opener named like a subcommand can never be reached this way.
+.SH SHELL INTEGRATION
+A subprocess cannot change its parent shell's directory, so add to your
+.BR ~/.bashrc " or " ~/.zshrc :
+.PP
+.EX
+eval "$(workforest shell-init)"
+.EE
+.PP
+This defines
+.B wf
+as a shell function that runs
+.B workforest
+and evaluates the directive it prints (a
+.B cd
+into the worktree, followed by the opener command); registers tab
+completion for both
+.BR wf " and " workforest ;
+and, when workforest was installed into a Python environment whose
+manual pages are not on the default search path (a
+.B uv tool
+or
+.B pipx
+install), prepends that location to
+.BR $MANPATH .
+.PP
+Without the integration everything still works, but an opener that runs
+in your terminal prints the
+.B cd
+command instead of performing it.
+.SH ENVIRONMENT
+Configuration is read from files and flags only; nothing in the
+environment changes the merged result.
+.TP
+.BR VISUAL ", " EDITOR
+The default opener when neither
+.B \-o
+nor the
+.B opener
+key is set.
+.TP
+.B SHELL
+Runs openers, wrappers, and scripts
+.RB ( "$SHELL \-c" ),
+and selects the dialect for
+.B shell-init
+when no argument is given.
+.TP
+.B XDG_CONFIG_HOME
+Base of the user configuration directory (default
+.BR ~/.config ).
+.TP
+.BR NO_COLOR ", " CLICOLOR_FORCE
+Disable or force colored messages on stderr.
+.TP
+.B WORKFOREST_DEBUG
+When set, errors re-raise with a Python traceback instead of a message.
+.PP
+Openers, wrappers, setup scripts, and named scripts run with the
+.B WF_*
+family in their environment:
+.TP
+.B WF_MAIN
+Path of the main worktree.
+.TP
+.B WF_NAME
+Repository name (the main checkout's directory name).
+.TP
+.B WF_WORKTREES_DIR
+The resolved worktrees directory.
+.TP
+.B WF_WORKTREE
+Path of the worktree being opened or run in.
+.TP
+.B WF_BRANCH
+Its branch (empty when detached).
+.TP
+.B WF_TARGET
+The
+.B \-p
+argument, default
+.B .
+(openers and wrappers only).
+.TP
+.B WF_TITLE
+A window label,
+.RI \(dq NAME ": " BRANCH \(dq
+(openers and wrappers only).
+.TP
+.B WF_ENV
+All of the above as shell-quoted
+.I NAME=value
+assignments, for re-creating the family where the environment is not
+inherited (openers and wrappers only).
+.TP
+.B WF_COMMAND
+In a wrapper: the opener command, unexpanded.
+.PP
+See
+.BR workforest (5)
+for how these are used in configuration.
+.SH FILES
+Later layers override earlier ones; see
+.BR workforest (5).
+.TP
+.I /etc/workforest/config.yaml
+System configuration.
+.TP
+.I ~/.config/workforest/config.yaml
+User configuration.
+.TP
+.I .workforest.yaml
+Shared project configuration, in the repository root.
+.TP
+.IR .vscode/.workforest.yaml ", " .idea/.workforest.yaml
+Local (untracked) project configuration.
+.PP
+Each may also be a
+.B .yml
+or
+.B .json
+file; the first existing basename wins.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Error.
+.TP
+.B 2
+Usage error.
+.TP
+.B 3
+Cancelled at a prompt, or a prompt was needed but no terminal was
+available (use
+.BR \-\-force ).
+.TP
+.B 4
+Configuration error.
+.PP
+Human-readable messages go to stderr.
+Stdout carries only machine output: directives for the
+.B wf
+shell function, listings, and configuration dumps.
+.SH EXAMPLES
+.TP
+.B wf create feature/login
+Create a worktree for the branch, run the project's setup hooks, and open
+it in
+.BR $EDITOR .
+.TP
+.B wf open login \-o lazygit
+Open the
+.B login
+worktree with any command.
+.TP
+.B wf run make check \-j2
+Run the
+.B make
+script with extra arguments appended.
+.TP
+.B wf checkout login
+Fold the branch back into the main checkout.
+.TP
+.B wf delete fix-y \-\-delete\-branch
+Remove a worktree and its branch.
+.TP
+.B wf
+Start the interactive TUI.
+.SH SEE ALSO
+.BR workforest (5),
+.BR git-worktree (1),
+.BR fzf (1)
+.PP
+.UR https://github.com/ArkadyBuryakov/workforest
+.UE

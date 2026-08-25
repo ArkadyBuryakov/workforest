@@ -45,6 +45,15 @@ path = "src/workforest/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/workforest"]
 
+# Installed under <prefix>/share/man by pip/uv/installer: /usr/share/man for
+# the Arch package, the venv for `uv tool`/pipx (shell-init then puts it on
+# $MANPATH), libexec for the Homebrew formula (which relocates them).
+[tool.hatch.build.targets.wheel.shared-data]
+"man/workforest.1" = "share/man/man1/workforest.1"
+"man/wf.1" = "share/man/man1/wf.1"
+"man/workforest.5" = "share/man/man5/workforest.5"
+"man/wf.5" = "share/man/man5/wf.5"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=workforest --cov-report=term-missing --cov-fail-under=90"
