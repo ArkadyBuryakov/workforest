@@ -2,11 +2,14 @@
 # Dynamic candidates are delegated to `workforest --complete TOPIC`.
 
 _workforest_complete() {
-    local cur cmd topic
+    local cur prev cmd topic
     cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]:-}"
     if [ "$COMP_CWORD" -eq 1 ]; then
         topic=commands
+    elif [ "$prev" = -o ] || [ "$prev" = --opener ]; then
+        topic=openers
     else
         case "$cmd" in
             create) topic=branches ;;
@@ -20,8 +23,8 @@ _workforest_complete() {
     COMPREPLY=()
     if [ "$topic" != none ]; then
         local IFS=$'\n'
-        # cut: the commands and branches topics emit tab-separated fields;
-        # bash cannot display descriptions, so keep only the name field.
+        # cut: some topics emit NAME<TAB>DESCRIPTION; bash cannot display
+        # descriptions, so keep only the name field.
         COMPREPLY=($(compgen -W "$(workforest --complete "$topic" 2>/dev/null | cut -f1)" -- "$cur"))
     fi
 }

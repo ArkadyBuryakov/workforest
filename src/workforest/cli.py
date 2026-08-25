@@ -1,5 +1,5 @@
-"""argparse front-end: shortcut dispatch, error → exit-code mapping, and the
-sole writer to stdout."""
+"""argparse front-end: error → exit-code mapping and the sole writer to
+stdout."""
 
 import argparse
 import os
@@ -140,10 +140,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workforest",
         description="Git worktree forest management",
-        epilog=(
-            "shortcut: `workforest OPENER [NAME] [-p PATH]` "
-            "is `workforest open [NAME] -o OPENER [-p PATH]`"
-        ),
     )
     parser.add_argument("--version", action="version", version=f"workforest {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -234,13 +230,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _preprocess(argv: list[str]) -> list[str]:
-    """No args → TUI; unknown first word → opener shortcut for `open`."""
-    if not argv:
-        return ["tui"]
-    first = argv[0]
-    if first.startswith("-") or first in _known_subcommands():
-        return argv
-    return ["open", *argv[1:], "-o", first]
+    """No args → TUI."""
+    return argv or ["tui"]
 
 
 def main(argv: list[str] | None = None) -> int:

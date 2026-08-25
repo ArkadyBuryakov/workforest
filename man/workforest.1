@@ -297,31 +297,6 @@ command exists only when
 is present.
 It is experimental: it edits Claude Code's private on-disk state, which
 is not a stable interface, so any Claude Code update may break it.
-.SH OPENER SHORTCUT
-Any first word that is not a subcommand is taken as an opener:
-.PP
-.EX
-workforest \fIOPENER\fR [\fINAME\fR] [\-p \fIPATH\fR]
-.EE
-.PP
-is
-.PP
-.EX
-workforest open [\fINAME\fR] \-o \fIOPENER\fR [\-p \fIPATH\fR]
-.EE
-.PP
-so
-.B wf edit api
-opens the
-.B api
-worktree with the
-.B edit
-opener, and
-.B wf lazygit
-runs
-.BR lazygit (1)
-in the current worktree.
-An opener named like a subcommand can never be reached this way.
 .SH SHELL INTEGRATION
 A subprocess cannot change its parent shell's directory, so add to your
 .BR ~/.bashrc " or " ~/.zshrc :

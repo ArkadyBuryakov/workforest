@@ -262,33 +262,22 @@ class TestCompleteBackend:
         )
         result = run_cli("--complete", "scripts", cwd=repo.path)
         assert result.out.splitlines() == ["migrate", "test"]
-        # wrappers are not openers
+        # wrappers are not openers; descriptions carry the resolved command
         result = run_cli("--complete", "openers", cwd=repo.path)
-        assert result.out.splitlines() == ["edit", "win"]
+        assert result.out.splitlines() == [
+            'edit\t$EDITOR "$WF_TARGET"',
+            'win\t$EDITOR "$WF_TARGET" via kitty',
+        ]
 
-    def test_commands_include_subcommands_and_openers(self, repo: Repo, run_cli: Run) -> None:
-        repo.write_project_config(
-            "openers:\n  myedit: '$EDITOR'\n  win: {from: myedit, wrap: kitty}\n"
-            "wrappers:\n  kitty: 'kitty $SHELL -c \"$WF_COMMAND\"'\n"
-        )
+    def test_commands_are_subcommands_only(self, repo: Repo, run_cli: Run) -> None:
+        repo.write_project_config("openers:\n  myedit: '$EDITOR'\n")
         result = run_cli("--complete", "commands", cwd=repo.path)
         rows = [line.split("\t") for line in result.out.splitlines()]
-        assert all(len(row) == 3 for row in rows)  # NAME, KIND, DESCRIPTION
-        by_name = {name: (kind, desc) for name, kind, desc in rows}
-        assert by_name["create"][0] == "command"
-        assert by_name["create"][1]  # help text carried through
-        assert by_name["myedit"] == ("opener", "$EDITOR")
-        assert by_name["win"] == ("opener", "$EDITOR via kitty")
+        assert all(len(row) == 2 for row in rows)  # NAME, DESCRIPTION
+        by_name = dict(rows)
+        assert by_name["create"]  # help text carried through
+        assert "myedit" not in by_name  # openers are not top-level words
         assert "claude" not in by_name  # gated: no ~/.claude
-
-    def test_commands_drop_openers_shadowed_by_subcommands(self, repo: Repo, run_cli: Run) -> None:
-        """An opener named like a subcommand never dispatches (the subcommand
-        wins in cli._preprocess), so it must not be offered."""
-        repo.write_project_config("openers:\n  create: 'code .'\n  myedit: '$EDITOR'\n")
-        result = run_cli("--complete", "commands", cwd=repo.path)
-        names = [line.split("\t")[0] for line in result.out.splitlines()]
-        assert names.count("create") == 1
-        assert "myedit" in names
 
     def test_never_errors(self, tmp_path: Path, run_cli: Run) -> None:
         outside = tmp_path / "outside"
