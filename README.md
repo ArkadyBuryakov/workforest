@@ -333,7 +333,7 @@ Man pages are hand-written roff under `man/` (`workforest.1` and
 `workforest.5`, plus `wf.1`/`wf.5` links to them); `tests/test_man.py` fails when they drift from
 `cli.py`. They ship as `share/man` data in the wheel, which is how every
 package gets them: the Arch package installs the wheel to `/usr`, the
-Homebrew formula relocates them out of its venv, and `uv tool`/`pipx` keep
+Homebrew formula moves them out of its venv, and `uv tool`/`pipx` keep
 them in the venv where `workforest shell-init` points `$MANPATH`.
 
 Packaging templates live under `packaging/` (one directory per package

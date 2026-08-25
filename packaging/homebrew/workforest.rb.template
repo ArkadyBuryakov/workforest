@@ -24,10 +24,16 @@ class Workforest < Formula
   def install
     virtualenv_install_with_resources
 
-    # The wheel drops its man pages into the venv (libexec/share/man), which
-    # man(1) never searches; move them where Homebrew links them from.
-    man1.install Dir[libexec/"share/man/man1/*"]
-    man5.install Dir[libexec/"share/man/man5/*"]
+    # Homebrew symlinks the venv's man pages (libexec/share/man) into
+    # man1/man5. Move the files themselves instead: `workforest shell-init`
+    # adds a $MANPATH entry whenever the pages are still in the venv.
+    %w[man1 man5].each do |section|
+      Dir[libexec/"share/man/#{section}/*"].each do |page|
+        link = man/section/File.basename(page)
+        rm link if link.symlink?
+        (man/section).install page
+      end
+    end
 
     # Completions for the plain binary; the wf shell function itself comes
     # from `workforest shell-init` (see caveats).

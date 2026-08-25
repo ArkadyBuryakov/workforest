@@ -3,11 +3,18 @@ name: Publish to AUR
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to publish (e.g. 0.2.1)"
+        required: true
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     container: archlinux:latest
+    env:
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
     environment:
       name: aur
       url: https://aur.archlinux.org/packages/workforest
@@ -15,15 +22,18 @@ jobs:
       contents: read
     steps:
       - name: Install system dependencies
-        run: >
-          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap man-db
-          python python-yaml python-build python-installer python-wheel python-hatchling
+        run: |
+          # The archlinux image drops man pages at install time
+          # (NoExtract = usr/share/man/*); the smoke test below needs them.
+          sed -i '/^NoExtract.*usr\/share\/man/d' /etc/pacman.conf
+          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap man-db \
+            python python-yaml python-build python-installer python-wheel python-hatchling
 
       - uses: actions/checkout@v4
 
       - name: Render PKGBUILD from template
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_VERSION#v}"
           cd packaging/AUR
           sed "s/@VERSION@/$version/g" PKGBUILD.template > PKGBUILD
           # makepkg refuses to run as root
@@ -47,7 +57,7 @@ jobs:
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_VERSION#v}"
           # Explicit paths only: ssh resolves ~ from the passwd entry (/root),
           # while the shell resolves it from $HOME (/github/home) — they differ
           # in container jobs. Host keys are pinned rather than keyscanned.
