@@ -22,6 +22,7 @@ SUBCOMMAND_HELP: dict[str, str] = {
     "delete": "delete worktree(s)",
     "checkout": "delete a worktree and check its branch out in main",
     "run": "run a named script from the merged config",
+    "stop": "stop a running script (this worktree's instance, or --all)",
     "tui": "interactive mode (requires fzf)",
     "init": "scaffold a .workforest.yaml project config",
     "config": "show the merged configuration and its sources",
@@ -102,7 +103,12 @@ def _handle_checkout(ns: argparse.Namespace) -> CommandResult:
 
 def _handle_run(ns: argparse.Namespace) -> CommandResult:
     ctx = commands.build_context()
-    return commands.cmd_run(ctx, ns.script, ns.args)
+    return commands.cmd_run(ctx, ns.script, ns.args, background=True if ns.background else None)
+
+
+def _handle_stop(ns: argparse.Namespace) -> CommandResult:
+    ctx = commands.build_context()
+    return commands.cmd_stop(ctx, ns.script, everywhere=ns.all)
 
 
 def _handle_init(ns: argparse.Namespace) -> CommandResult:
@@ -188,6 +194,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_handle_checkout)
 
     p = sub.add_parser("run", help=SUBCOMMAND_HELP["run"])
+    p.add_argument(
+        "-b",
+        "--background",
+        action="store_true",
+        help="detach, with output to a log file (before SCRIPT; after it, it belongs to ARGS)",
+    )
     p.add_argument("script", metavar="SCRIPT")
     p.add_argument(
         "args",
@@ -196,6 +208,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="appended (shell-quoted) to the script command",
     )
     p.set_defaults(func=_handle_run)
+
+    p = sub.add_parser("stop", help=SUBCOMMAND_HELP["stop"])
+    p.add_argument("script", metavar="SCRIPT")
+    p.add_argument(
+        "--all", action="store_true", help="every worktree's instance, not just this one's"
+    )
+    p.set_defaults(func=_handle_stop)
 
     p = sub.add_parser("init", help=SUBCOMMAND_HELP["init"])
     p.add_argument(

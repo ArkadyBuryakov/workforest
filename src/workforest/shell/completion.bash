@@ -14,7 +14,7 @@ _workforest_complete() {
         case "$cmd" in
             create) topic=branches ;;
             open|delete|checkout) topic=worktrees ;;
-            run) topic=scripts ;;
+            run|stop) topic=scripts ;;
             claude) topic=claude-sessions ;;
             tui|list|init|config|shell-init) topic=none ;;
             *) topic=worktrees ;;

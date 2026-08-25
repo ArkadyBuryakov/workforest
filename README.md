@@ -70,6 +70,7 @@ wf create feature/login     # create worktree + run hooks + open in $EDITOR
 wf list                     # what's in the forest
 wf open login -o 'lazygit'  # open with any command instead
 wf run test                 # run a named script from config
+wf run -b backend           # detached; `wf stop backend` ends it
 wf run make check -j2       # extra args are appended to the script command
 wf checkout login           # fold the branch back into the main checkout
 wf delete fix-y             # remove a worktree (asks about dirty changes)
@@ -103,7 +104,8 @@ openers: {}             # name -> what `-o NAME` runs, and where
 wrappers: {}            # name -> command that runs $WF_COMMAND elsewhere (window, pane, direnv)
 symlinks: []            # untracked assets linked from main into new worktrees
 setup_scripts: []       # shell snippets run in a fresh worktree
-scripts: {}             # name -> snippet for `wf run NAME`
+scripts: {}             # name -> command for `wf run NAME` (or a mapping, see Scripts)
+stop_timeout: 30        # seconds a stopped script gets after SIGTERM before SIGKILL
 ```
 
 ### Openers
@@ -189,6 +191,62 @@ Fully commented reference configs:
 [`.workforest.yaml`](src/workforest/examples/.workforest.yaml) (project) —
 installed to `/usr/share/doc/workforest/examples/` by the Arch package.
 
+### Scripts
+
+`wf run NAME [ARGS...]` runs a `scripts` entry from the root of the current
+worktree, with any extra arguments shell-quoted and appended. An entry is a
+shell command string, or a mapping:
+
+```yaml
+scripts:
+  test: npm test                  # shorthand for {command: npm test}
+  frontend:
+    command: cd frontend && npm run dev
+    exclusive: true               # at most one instance per project: it owns the port
+  backend:
+    command: docker compose up
+    exclusive: true
+    background: true              # detached, output in a log file
+    cleanup: docker compose down  # runs after the command ends, however it ended
+    stop_timeout: 60              # give it a minute to come down before SIGKILL
+```
+
+The command runs in a process group of its own, in the foreground of your
+terminal, so Ctrl-C and Ctrl-Z reach it directly; a signal sent to `wf`
+itself (SIGINT, SIGTERM, SIGHUP) is forwarded to the whole group. `cleanup`
+then runs — after a normal exit, a failure, or a kill — in the same
+worktree with the same `WF_*` variables. `wf run` fails with the command's
+status, or `128+N` when the command was killed by signal N; a command
+killed by SIGINT ends `wf` the way Ctrl-C would, so a shell loop around it
+aborts.
+
+A `background` script (or `wf run -b NAME`) is detached instead: it runs
+under a supervisor of its own — the same process-group and cleanup
+handling, minus the terminal — with its output in
+`.git/workforest/logs/NAME/WORKTREE.log` of the main checkout, and `wf`
+returns as soon as it is clearly running (a command that dies right away
+is reported with the tail of its log). That way several long-running
+scripts can be started from one terminal. `wf stop NAME` stops this
+worktree's instance, foreground or background, from any terminal;
+`--all` stops every worktree's. A script runs once per worktree: starting
+one that is already running there fails (`wf stop` it first).
+
+An `exclusive` script runs at most once per project: starting it stops the
+running instance in any worktree (this one included), waits for that
+instance's cleanup to finish, and only then starts. Stopping — by `wf
+stop` or by preemption — is SIGTERM, then SIGKILL after `stop_timeout`
+seconds (30 by default; the top-level key changes it for every script, an
+entry's own `stop_timeout` for that one). The stopped instance's `wf run`
+reports ``killed by SIGTERM (stopped by `wf run backend` in 'feat-x')``
+and exits 143. Running instances are recorded under
+`.git/workforest/running/` in the main checkout. A record is a hint, not
+the truth: pid, process group, and boot are verified before anything is
+signalled, so a crash, a reboot, or a `kill -9`'d `wf` leaves nothing to
+tidy by hand. A command still running after its `wf run` is gone (an
+orphan) is stopped and cleaned up by whoever stops it when `/proc`
+confirms the pid was not recycled; elsewhere it is reported and left
+alone.
+
 ### Script environment
 
 `setup_scripts`, `scripts`, and hooks run via `$SHELL -c` with:
@@ -216,6 +274,15 @@ setup_scripts:
 scripts:
   test: npm test
   migrate: npm run db:migrate
+  frontend:
+    command: cd frontend && npm run dev
+    exclusive: true
+  backend:
+    command: docker compose up
+    exclusive: true
+    background: true
+    cleanup: docker compose down
+    stop_timeout: 60
 ```
 
 ## Commands
@@ -226,7 +293,8 @@ workforest open   [NAME]   [-o OPENER] [-w WRAPPER] [-p PATH]
 workforest list   [--porcelain]
 workforest delete NAME...  [--force] [--delete-branch | --keep-branch]
 workforest checkout NAME   [--force]
-workforest run    SCRIPT [ARGS...]
+workforest run    [-b] SCRIPT [ARGS...]
+workforest stop   SCRIPT [--all]
 workforest tui    [MODE]
 workforest init   [--local]
 workforest config [--json]
@@ -247,7 +315,8 @@ Code session from the main worktree into the current one. It is
 **experimental**: it manipulates Claude Code's private on-disk state,
 which is not a stable interface, so any Claude Code update may break it.
 
-Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config error.
+Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config error
+· `128+N` the `run` command was killed by signal N.
 Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the `wf` wrapper, `--porcelain` listings, dumps).
 

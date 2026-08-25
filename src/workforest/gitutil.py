@@ -177,6 +177,14 @@ def git_dir(worktree: Path) -> Path:
     return Path(git_output(["rev-parse", "--absolute-git-dir"], cwd=worktree))
 
 
+def git_common_dir(worktree: Path) -> Path:
+    """The repository's shared git dir (.git of the main checkout), the
+    same from every worktree."""
+    return Path(
+        git_output(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=worktree)
+    )
+
+
 def set_config(worktree: Path, key: str, value: str, *, per_worktree: bool = False) -> None:
     args = ["config"]
     if per_worktree:

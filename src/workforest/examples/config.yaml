@@ -170,6 +170,15 @@ scripts: {}
 #   diff-main: "git diff $(git -C \"$WF_MAIN\" branch --show-current)..."
 
 # ---------------------------------------------------------------------------
+# Seconds a stopped script (`workforest stop`, or an `exclusive` script
+# starting elsewhere) gets to end after SIGTERM before SIGKILL. A script
+# entry's own `stop_timeout` overrides this for that script.
+#
+# Default: 30
+# ---------------------------------------------------------------------------
+stop_timeout: 30
+
+# ---------------------------------------------------------------------------
 # `symlinks` and `setup_scripts` are valid here too (any key is valid at any
 # layer), but they are repo concerns — you almost always want them in the
 # project config instead. Defaults: [] and [].

@@ -141,6 +141,37 @@ class TestRunPassthrough:
         assert out.read_text() == "--force --delete-branch\n"
 
 
+class TestRunBackgroundAndStop:
+    def test_run_b_then_stop(self, run_cli: Run, repo: Repo) -> None:
+        repo.write_project_config(
+            "scripts:\n  srv:\n    command: sleep 30\n    cleanup: touch cleaned\n"
+        )
+        result = run_cli("run", "-b", "srv", cwd=repo.path)
+        assert result.code == 0, result.err
+        assert "started 'srv' in the background" in result.err
+
+        result = run_cli("stop", "srv", cwd=repo.path)
+        assert result.code == 0, result.err
+        assert (repo.path / "cleaned").exists()
+
+        result = run_cli("stop", "srv", cwd=repo.path)
+        assert result.code == 1
+        assert "'srv' is not running in 'api'" in result.err
+
+    def test_stop_all_flag(self, run_cli: Run, repo: Repo) -> None:
+        repo.write_project_config("scripts:\n  srv: sleep 30\n")
+        result = run_cli("stop", "srv", "--all", cwd=repo.path)
+        assert result.code == 1
+        assert "not running anywhere in this project" in result.err
+
+    def test_dash_b_after_script_is_an_argument(self, run_cli: Run, repo: Repo) -> None:
+        out = repo.path / "out.txt"
+        repo.write_project_config(f"scripts:\n  echoer: echo > {out}\n")
+        result = run_cli("run", "echoer", "-b", cwd=repo.path)
+        assert result.code == 0, result.err
+        assert out.read_text() == "-b\n"
+
+
 class TestClaudeGate:
     def test_hidden_without_claude_dir(self, run_cli: Run, repo: Repo) -> None:
         # "claude" is not a subcommand without ~/.claude: usage error

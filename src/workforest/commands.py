@@ -291,10 +291,33 @@ def cmd_checkout(ctx: Context, name: str, *, force: bool = False) -> CommandResu
     return launch.cd_action(ctx.main)
 
 
-def cmd_run(ctx: Context, name: str, extra_args: list[str] | None = None) -> CommandResult:
+def _current_script_env(ctx: Context) -> dict[str, str]:
     branch = gitutil.current_branch(ctx.cwd_root)
-    env = _script_env(ctx, ctx.cwd_root, None if branch == "HEAD" else branch)
-    hooks.run_named_script(ctx.config, name, cwd=ctx.cwd_root, env=env, extra_args=extra_args)
+    return _script_env(ctx, ctx.cwd_root, None if branch == "HEAD" else branch)
+
+
+def cmd_run(
+    ctx: Context,
+    name: str,
+    extra_args: list[str] | None = None,
+    *,
+    background: bool | None = None,
+) -> CommandResult:
+    hooks.run_named_script(
+        ctx.config,
+        name,
+        cwd=ctx.cwd_root,
+        env=_current_script_env(ctx),
+        extra_args=extra_args,
+        background=background,
+    )
+    return None
+
+
+def cmd_stop(ctx: Context, name: str, *, everywhere: bool = False) -> CommandResult:
+    hooks.stop_script(
+        ctx.config, name, cwd=ctx.cwd_root, env=_current_script_env(ctx), everywhere=everywhere
+    )
     return None
 
 
