@@ -44,7 +44,19 @@ class OpenerSpec:
     background: bool | None = None  # None: the `from` target's setting (own command: False)
 
 
-type ConfigEntry = CommandSpec | OpenerSpec
+@dataclass(slots=True, frozen=True)
+class ScriptSpec:
+    """A `scripts` entry: what `wf run NAME` runs, where, whether only one
+    instance may run per project, and what to run once it has ended."""
+
+    command: str
+    background: bool = False  # detach, with output to a log file, instead of holding the terminal
+    exclusive: bool = False  # starting it stops the running instance anywhere in the project
+    cleanup: str | None = None  # runs after the command ends, however it ended
+    stop_timeout: float | None = None  # seconds between SIGTERM and SIGKILL; None: the global one
+
+
+type ConfigEntry = CommandSpec | OpenerSpec | ScriptSpec
 
 
 def _field_name(key: str) -> str:
@@ -58,10 +70,9 @@ def _key_name(field_name: str) -> str:
 
 @dataclass(slots=True, frozen=True)
 class _FieldSpec:
-    """Kinds: "str", "list", "map" (a null value deletes the inherited entry
-    during merge). Map entries are plain strings unless `entry` names the
-    dataclass they normalize to — then a string is shorthand for
-    `{command: <string>}`."""
+    """Kinds: "str", "number", "list", "map" (a null value deletes the
+    inherited entry during merge). Map entries normalize to the `entry` dataclass; a string
+    is shorthand for `{command: <string>}`."""
 
     kind: str
     default: Any
@@ -75,7 +86,8 @@ _SCHEMA: dict[str, _FieldSpec] = {
     "wrappers": _FieldSpec("map", {}, CommandSpec),
     "symlinks": _FieldSpec("list", []),
     "setup_scripts": _FieldSpec("list", []),
-    "scripts": _FieldSpec("map", {}),
+    "scripts": _FieldSpec("map", {}, ScriptSpec),
+    "stop_timeout": _FieldSpec("number", 30.0),
 }
 
 
@@ -93,7 +105,8 @@ class Config:
     wrappers: dict[str, CommandSpec] = field(default_factory=dict)
     symlinks: list[str] = field(default_factory=list)
     setup_scripts: list[str] = field(default_factory=list)
-    scripts: dict[str, str] = field(default_factory=dict)
+    scripts: dict[str, ScriptSpec] = field(default_factory=dict)
+    stop_timeout: float = 30.0  # seconds a stopped script gets between SIGTERM and SIGKILL
     sources: list[ConfigSource] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -104,7 +117,8 @@ class Config:
             "wrappers": {name: _entry_data(spec) for name, spec in self.wrappers.items()},
             "symlinks": self.symlinks,
             "setup_scripts": self.setup_scripts,
-            "scripts": self.scripts,
+            "scripts": {name: _entry_data(spec) for name, spec in self.scripts.items()},
+            "stop_timeout": self.stop_timeout,
         }
 
 
@@ -115,6 +129,17 @@ def _entry_data(spec: ConfigEntry) -> str | dict[str, Any]:
     is kept."""
     if isinstance(spec, CommandSpec):
         return {"command": spec.command, "background": True} if spec.background else spec.command
+    if isinstance(spec, ScriptSpec):
+        data: dict[str, Any] = {"command": spec.command}
+        if spec.background:
+            data["background"] = True
+        if spec.exclusive:
+            data["exclusive"] = True
+        if spec.cleanup is not None:
+            data["cleanup"] = spec.cleanup
+        if spec.stop_timeout is not None:
+            data["stop_timeout"] = spec.stop_timeout
+        return data["command"] if list(data) == ["command"] else data
     data = {
         _key_name(f.name): value
         for f in fields(spec)
@@ -159,6 +184,9 @@ def _validate(data: dict[str, Any], path: Path) -> None:
                     raise ConfigError(
                         f"{path}: {key!r} must be a string, got {type(value).__name__}"
                     )
+            case "number":
+                if not _is_positive_number(value):
+                    raise ConfigError(f"{path}: {key!r} must be a number of seconds above 0")
             case "list":
                 if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                     raise ConfigError(f"{path}: {key!r} must be a list of strings")
@@ -169,16 +197,19 @@ def _validate(data: dict[str, Any], path: Path) -> None:
                     _validate_entry(entry, key=key, name=name, spec=_SCHEMA[key], path=path)
 
 
+def _is_positive_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
+
+
 def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: Path) -> None:
     if entry is None:
         return
     where = f"{path}: {key}.{name}"
     if isinstance(entry, str):
-        if spec.entry is not None and not entry.strip():
+        if not entry.strip():
             raise ConfigError(f"{where}: must not be empty")
         return
-    if spec.entry is None:
-        raise ConfigError(f"{path}: {key!r} must be a mapping of string to string (or null)")
+    assert spec.entry is not None  # every "map" field names its entry type
     known = [_key_name(f.name) for f in fields(spec.entry)]
     if not isinstance(entry, dict):
         raise ConfigError(f"{where}: must be a shell command or a mapping ({', '.join(known)})")
@@ -196,6 +227,14 @@ def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: 
         raise ConfigError(f"{where}: 'wrap' must be a string")
     if "background" in entry and not isinstance(entry["background"], bool):
         raise ConfigError(f"{where}: 'background' must be true or false")
+    if "exclusive" in entry and not isinstance(entry["exclusive"], bool):
+        raise ConfigError(f"{where}: 'exclusive' must be true or false")
+    if "cleanup" in entry and (
+        not isinstance(entry["cleanup"], str) or not entry["cleanup"].strip()
+    ):
+        raise ConfigError(f"{where}: 'cleanup' must be a non-empty string")
+    if "stop_timeout" in entry and not _is_positive_number(entry["stop_timeout"]):
+        raise ConfigError(f"{where}: 'stop_timeout' must be a number of seconds above 0")
     if spec.entry is OpenerSpec:
         if ("command" in entry) == ("from" in entry):
             raise ConfigError(f"{where}: exactly one of 'command' and 'from' is required")

@@ -25,6 +25,14 @@ class ConfigError(WorkforestError):
     exit_code = EXIT_CONFIG
 
 
+class ScriptKilledError(WorkforestError):
+    """A `wf run` command died by a signal; exits 128+N like a shell would."""
+
+    def __init__(self, message: str, signum: int) -> None:
+        super().__init__(message)
+        self.exit_code = 128 + signum
+
+
 class GitError(WorkforestError):
     pass
 

@@ -80,6 +80,7 @@ wrappers: {}
 symlinks: []
 setup_scripts: []
 scripts: {}
+stop_timeout: 30
 .EE
 .TP
 .B worktrees_dir
@@ -145,10 +146,72 @@ Skipped by
 .BR "create \-\-no\-hooks" .
 .TP
 .B scripts
-Mapping of name \(-> shell snippet for
+Mapping of name \(-> script for
 .BI "workforest run " NAME\fR,
 run from the current worktree's root with any extra arguments
 shell-quoted and appended.
+An entry is a shell command string, or a mapping with
+.B command
+(the shell command) and optionally
+.BR background " and " exclusive
+(booleans, default false),
+.B cleanup
+(a shell command), and
+.B stop_timeout
+(seconds).
+.RS
+.TP
+.B background
+Detach by default, as
+.B "run \-b"
+does: output goes to a log file and
+.B workforest
+returns once the command is clearly running.
+Stop it with
+.BR "workforest stop" .
+.TP
+.B cleanup
+Runs after the command ends \(em normal exit, failure, or kill \(em in
+the same worktree with the same
+.B WF_*
+variables.
+Its failure is a warning.
+.TP
+.B exclusive
+At most one instance per project: starting the script stops the running
+instance in any worktree (this one included) with SIGTERM, then SIGKILL
+after
+.B stop_timeout
+seconds, waits for that instance's cleanup to finish, and only then
+starts.
+The stopped instance's
+.B workforest run
+reports who preempted it and exits 143.
+Running instances are recorded under
+.I .git/workforest/running/
+in the main checkout; a record is verified (pid, process group, boot)
+before anything is signalled, so a crash, a reboot, or a killed
+.B workforest
+leaves nothing to tidy by hand.
+A command still running after its
+.B workforest run
+is gone is stopped and cleaned up by the preempting run when
+.I /proc
+confirms the pid was not recycled; elsewhere it is reported and left
+alone.
+.TP
+.B stop_timeout
+This script's grace period between SIGTERM and SIGKILL, overriding the
+top-level key.
+.RE
+.TP
+.B stop_timeout
+Seconds a stopped script gets to end after SIGTERM before SIGKILL, for
+.B workforest stop
+and for
+.B exclusive
+preemption.
+A number above 0; default 30.
 .SH OPENERS AND WRAPPERS
 An
 .I opener
@@ -313,6 +376,15 @@ setup_scripts:
 scripts:
   test: npm test
   migrate: npm run db:migrate
+  frontend:
+    command: cd frontend && npm run dev
+    exclusive: true
+  backend:
+    command: docker compose up
+    exclusive: true
+    background: true
+    cleanup: docker compose down
+    stop_timeout: 60
 .EE
 .SH FILES
 Fully commented reference configurations are installed with the package

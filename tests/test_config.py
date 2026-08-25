@@ -10,6 +10,7 @@ from workforest.config import (
     CommandSpec,
     Config,
     OpenerSpec,
+    ScriptSpec,
     load_config,
     resolve_worktrees_dir,
 )
@@ -111,7 +112,7 @@ class TestLayering:
     def test_json_project_config(self, tmp_path: Path) -> None:
         project = make_project(tmp_path)
         (project / ".workforest.json").write_text('{"scripts": {"test": "make test"}}')
-        assert load_config(project).scripts == {"test": "make test"}
+        assert load_config(project).scripts == {"test": ScriptSpec("make test")}
 
 
 class TestMergeSemantics:
@@ -126,7 +127,10 @@ class TestMergeSemantics:
         project = make_project(tmp_path)
         (project / ".workforest.yaml").write_text("scripts:\n  build: npm run build\n")
         cfg = load_config(project)
-        assert cfg.scripts == {"sync": "git fetch", "build": "npm run build"}
+        assert cfg.scripts == {
+            "sync": ScriptSpec("git fetch"),
+            "build": ScriptSpec("npm run build"),
+        }
 
     def test_null_deletes_mapping_entry(self, tmp_path: Path) -> None:
         write_user_config("scripts:\n  sync: git fetch\n")
@@ -207,6 +211,58 @@ class TestEntries:
             "git": "lazygit",
         }
 
+    def test_script_entries(self, tmp_path: Path) -> None:
+        write_user_config(
+            "scripts:\n  test: make test\n"
+            "  dev: {command: npm run dev, exclusive: true, cleanup: fuser -k 3000/tcp}\n"
+            "  seed: {command: make seed, cleanup: make unseed}\n"
+            "  plain: {command: make, exclusive: false}\n"
+        )
+        cfg = load_config()
+        assert cfg.scripts == {
+            "test": ScriptSpec("make test"),
+            "dev": ScriptSpec("npm run dev", exclusive=True, cleanup="fuser -k 3000/tcp"),
+            "seed": ScriptSpec("make seed", cleanup="make unseed"),
+            "plain": ScriptSpec("make"),
+        }
+        assert cfg.as_dict()["scripts"] == {
+            "test": "make test",
+            "dev": {"command": "npm run dev", "exclusive": True, "cleanup": "fuser -k 3000/tcp"},
+            "seed": {"command": "make seed", "cleanup": "make unseed"},
+            "plain": "make",  # an explicit default collapses to the shorthand
+        }
+
+    def test_script_background_and_stop_timeout(self, tmp_path: Path) -> None:
+        write_user_config(
+            "stop_timeout: 5\n"
+            "scripts:\n"
+            "  api: {command: docker compose up, background: true, stop_timeout: 60}\n"
+            "  web: {command: npm run dev, stop_timeout: 2.5}\n"
+        )
+        cfg = load_config()
+        assert cfg.stop_timeout == 5
+        assert cfg.scripts == {
+            "api": ScriptSpec("docker compose up", background=True, stop_timeout=60),
+            "web": ScriptSpec("npm run dev", stop_timeout=2.5),
+        }
+        data = cfg.as_dict()
+        assert data["stop_timeout"] == 5
+        assert data["scripts"] == {
+            "api": {"command": "docker compose up", "background": True, "stop_timeout": 60},
+            "web": {"command": "npm run dev", "stop_timeout": 2.5},
+        }
+
+    def test_stop_timeout_defaults_to_30(self) -> None:
+        assert load_config().stop_timeout == 30.0
+
+    def test_script_mapping_overrides_string_per_key(self, tmp_path: Path) -> None:
+        write_user_config("scripts:\n  dev: npm run dev\n")
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text(
+            "scripts:\n  dev: {command: make dev, exclusive: true}\n"
+        )
+        assert load_config(project).scripts == {"dev": ScriptSpec("make dev", exclusive=True)}
+
     @pytest.mark.parametrize(
         ("content", "message"),
         [
@@ -236,7 +292,39 @@ class TestEntries:
                 "openers:\n  win: {command: x, wrap: k, background: true}\n",
                 "'background' and 'wrap' are mutually exclusive",
             ),
-            ("scripts:\n  test: {command: x}\n", "'scripts' must be a mapping of string to string"),
+            (
+                "scripts:\n  test: {command: x, exclusive: sometimes}\n",
+                "scripts.test: 'exclusive' must be true or false",
+            ),
+            (
+                "scripts:\n  test: {command: x, cleanup: ''}\n",
+                "scripts.test: 'cleanup' must be a non-empty string",
+            ),
+            (
+                "scripts:\n  test: {command: x, cleanup: [a]}\n",
+                "scripts.test: 'cleanup' must be a non-empty string",
+            ),
+            ("scripts:\n  test: {cleanup: x}\n", "scripts.test: 'command' is required"),
+            (
+                "scripts:\n  test: {command: x, background: 1}\n",
+                "scripts.test: 'background' must be true or false",
+            ),
+            (
+                "scripts:\n  test: {command: x, stop_timeout: 0}\n",
+                "scripts.test: 'stop_timeout' must be a number of seconds above 0",
+            ),
+            (
+                "scripts:\n  test: {command: x, stop_timeout: soon}\n",
+                "scripts.test: 'stop_timeout' must be a number of seconds above 0",
+            ),
+            (
+                "scripts:\n  test: {command: x, stop_timeout: true}\n",
+                "scripts.test: 'stop_timeout' must be a number of seconds above 0",
+            ),
+            ("stop_timeout: -1\n", "'stop_timeout' must be a number of seconds above 0"),
+            ("stop_timeout: '30'\n", "'stop_timeout' must be a number of seconds above 0"),
+            ("scripts:\n  test: {command: x, wrap: y}\n", "scripts.test: unknown key 'wrap'"),
+            ("scripts:\n  test: ''\n", "scripts.test: must not be empty"),
         ],
     )
     def test_invalid_entries(self, tmp_path: Path, content: str, message: str) -> None:
@@ -316,7 +404,9 @@ class TestValidation:
         with pytest.raises(ConfigError, match="'scripts' must be a mapping"):
             load_config(project)
         (project / ".workforest.yaml").write_text("scripts:\n  test: [a, b]\n")
-        with pytest.raises(ConfigError, match="'scripts' must be a mapping of string to string"):
+        with pytest.raises(
+            ConfigError, match=r"scripts\.test: must be a shell command or a mapping"
+        ):
             load_config(project)
 
     def test_non_mapping_top_level(self, tmp_path: Path) -> None:

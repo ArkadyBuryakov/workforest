@@ -43,8 +43,13 @@ workforest, wf \- git worktree forest management
 .RB [ \-\-force ]
 .YS
 .SY "workforest run"
+.RB [ \-b ]
 .I SCRIPT
 .RI [ ARGS .\|.\|.]
+.YS
+.SY "workforest stop"
+.I SCRIPT
+.RB [ \-\-all ]
 .YS
 .SY "workforest tui"
 .RI [ MODE ]
@@ -207,7 +212,7 @@ its branch out in the main worktree and move the shell there.
 .TP
 .B \-\-force
 Skip the dirty-worktree confirmation.
-.SS run \fISCRIPT\fR [\fIARGS\fR...]
+.SS run [\fB\-b\fR] \fISCRIPT\fR [\fIARGS\fR...]
 Run the named script from the merged configuration's
 .B scripts
 map, from the root of the current worktree.
@@ -215,6 +220,55 @@ Extra arguments are shell-quoted and appended to the script command.
 See
 .B ENVIRONMENT
 for the variables scripts receive.
+.PP
+The command runs in a process group of its own, in the foreground of the
+terminal, so Ctrl-C and Ctrl-Z reach it directly; SIGINT, SIGTERM, and
+SIGHUP sent to
+.B workforest
+itself are forwarded to the whole group.
+The script's
+.B cleanup
+command (see
+.BR workforest (5))
+then runs however the command ended.
+Starting an
+.B exclusive
+script first stops its running instance in any worktree of the project
+and waits for that instance's cleanup; any other script refuses to start
+while it is already running in this worktree (see
+.BR stop ).
+The exit status is the command's, or 128+\fIN\fR when it was killed by
+signal
+.IR N ;
+a command killed by SIGINT ends
+.B workforest
+by SIGINT as well, so a shell loop around it aborts.
+.TP
+.BR \-b ", " \-\-background
+Detach instead: the command runs under a supervisor of its own with its
+output in
+.IR .git/workforest/logs/ SCRIPT / WORKTREE .log
+of the main checkout, and
+.B workforest
+returns once it is clearly running (a command that dies right away is
+reported with the tail of its log).
+The
+.B background
+entry key does the same by default.
+Must precede
+.IR SCRIPT ;
+after it, it belongs to
+.IR ARGS .
+.SS stop \fISCRIPT\fR [\fB\-\-all\fR]
+Stop the script's running instance in the current worktree \(em
+foreground or background, started from any terminal \(em with SIGTERM,
+then SIGKILL after
+.B stop_timeout
+seconds, and wait for its cleanup to finish.
+Fails when nothing is running.
+.TP
+.B \-\-all
+Every worktree's instance of the script, not just this one's.
 .SS tui [\fIMODE\fR]
 Interactive mode, driven by
 .BR fzf (1).
@@ -436,6 +490,12 @@ available (use
 .TP
 .B 4
 Configuration error.
+.TP
+.BI 128+ N
+The
+.B run
+command was killed by signal
+.IR N .
 .PP
 Human-readable messages go to stderr.
 Stdout carries only machine output: directives for the
