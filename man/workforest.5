@@ -1,0 +1,327 @@
+.\" Manual page for workforest(5): the configuration file format.
+.\" Hand-written roff (man macros); see workforest.1 for the rationale.
+.TH WORKFOREST 5 "" workforest "File Formats"
+.SH NAME
+workforest, wf \- configuration files for workforest
+.SH SYNOPSIS
+.I /etc/workforest/config.yaml
+.br
+.I ~/.config/workforest/config.yaml
+.br
+.I .workforest.yaml
+.br
+.IR .vscode/.workforest.yaml ", " .idea/.workforest.yaml
+.SH DESCRIPTION
+.BR workforest (1)
+reads its configuration from up to four layers of YAML (or JSON) files.
+Every file is optional, every key in it is optional, and later layers
+override earlier ones:
+.TP
+.B system
+.I /etc/workforest/config.yaml
+\(em organization-wide defaults.
+.TP
+.B user
+.I $XDG_CONFIG_HOME/workforest/config.yaml
+(default
+.IR ~/.config/workforest/config.yaml )
+\(em your terminal and editor setup.
+.TP
+.B project (shared)
+.I .workforest.yaml
+in the repository root, resolved against the main worktree \(em
+repository policy, committed to the repository.
+.TP
+.B project (local)
+.I .workforest.yaml
+inside
+.B .vscode/
+(checked first) or
+.B .idea/
+of the main worktree \(em personal overrides, untracked because IDE
+folders usually are.
+.PP
+At each location the first existing basename wins:
+.BR config.yaml ", " config.yml ", " config.json
+for the global layers and
+.BR .workforest.yaml ", " .workforest.yml ", " .workforest.json
+for the project layers.
+Command-line flags rank above every file.
+Nothing in the environment changes the merged result.
+.PP
+Scalars and lists in a higher layer
+.I replace
+the lower value.
+The
+.BR openers ", " wrappers ", and " scripts
+mappings
+.I merge
+per key, and a key set to
+.B null
+removes the entry inherited from a lower layer.
+.PP
+.B workforest config
+prints the merged result and where each layer came from;
+.B workforest init
+scaffolds a commented project file
+.RB ( \-\-local
+for a personal one).
+Unknown keys, and
+.BR from " or " wrap
+names that do not resolve, are reported when the configuration loads.
+.SH KEYS
+All keys with their built-in defaults:
+.PP
+.EX
+worktrees_dir: "$WF_MAIN/../worktrees/$WF_NAME"
+opener: ""
+openers: {}
+wrappers: {}
+symlinks: []
+setup_scripts: []
+scripts: {}
+.EE
+.TP
+.B worktrees_dir
+Where the forest lives: a path template expanded with
+.BR $WF_MAIN ", " $WF_NAME ,
+and ordinary environment variables such as
+.BR $HOME ,
+then normalized.
+The per-worktree variables are not available here, since no worktree
+exists yet when the directory is resolved.
+The default puts a
+.B worktrees/
+folder next to the main checkout, namespaced per repository:
+.I ~/src/api
+\(->
+.IR ~/src/worktrees/api/NAME .
+.TP
+.B opener
+The default opener for
+.BR create " and " open
+without
+.BR \-o :
+an
+.B openers
+name, or a shell command used verbatim.
+Empty means
+.BR $VISUAL ,
+then
+.BR $EDITOR ;
+if neither is set, opening fails with a message.
+.TP
+.B openers
+Mapping of name \(-> what
+.BI "\-o " NAME
+runs (see
+.BR "OPENERS AND WRAPPERS" ).
+Names are also usable as the opener shortcut
+.RB ( "wf " \fINAME\fR )
+and fill the TUI's opener carousel.
+Environment-specific; belongs in the user layer.
+.TP
+.B wrappers
+Mapping of name \(-> a command that runs an opener somewhere else (a new
+terminal window, a tmux window, through
+.BR direnv ).
+Environment-specific; belongs in the user layer.
+.TP
+.B symlinks
+List of repository-root-relative paths linked from the main worktree
+into each new worktree, so expensive or private untracked assets
+.RB ( node_modules ", " .env ", " .venv )
+are shared instead of rebuilt.
+Created links are hidden from
+.B git status
+in that worktree only.
+Missing sources are skipped with a warning; an existing destination that
+is not a symlink is never replaced.
+.TP
+.B setup_scripts
+List of shell snippets run in order inside a freshly created worktree.
+A failing script warns but does not abort the remaining scripts or the
+creation.
+Skipped by
+.BR "create \-\-no\-hooks" .
+.TP
+.B scripts
+Mapping of name \(-> shell snippet for
+.BI "workforest run " NAME\fR,
+run from the current worktree's root with any extra arguments
+shell-quoted and appended.
+.SH OPENERS AND WRAPPERS
+An
+.I opener
+is a shell command that runs with the worktree root as working
+directory, either
+.I in your terminal
+(the default: the
+.B wf
+shell function changes directory there and runs it) or
+.I in the background
+(spawned detached;
+.B wf
+returns at once \(em for GUI applications and commands that hand off to
+a daemon or multiplexer).
+Optionally it runs
+.I through a wrapper\c
+, a command that receives it as
+.B $WF_COMMAND
+and takes it somewhere else.
+.PP
+An
+.B openers
+entry is a shell command string, or a mapping with these keys:
+.TP
+.B command
+A shell command \(em always literal, never a name.
+.TP
+.B from
+Another opener's name: reuse its command, and its
+.B background
+unless set here.
+One level only: the target must have a
+.B command
+of its own.
+.TP
+.B background
+.B true
+to spawn the command detached and return immediately.
+.TP
+.B wrap
+A
+.B wrappers
+name to run the command through.
+.PP
+An opener has exactly one of
+.BR command " and " from .
+.BR wrap " and " background
+never sit on the same entry: the wrapper decides where the whole thing
+runs, through its own
+.B background
+flag.
+.PP
+A
+.B wrappers
+entry is a shell command string, or a mapping with
+.BR command " and " background .
+It receives the opener command as
+.BR $WF_COMMAND ,
+still unexpanded, so run it through a shell of its own for its
+.B $WF_*
+references to resolve:
+.BR "$SHELL \-c \(dq$WF_COMMAND\(dq" .
+When that shell runs where this environment is not inherited (a tmux
+server, an
+.BR ssh (1)
+host), hand the variable family over as text:
+.B \(dqexport $WF_ENV; $WF_COMMAND\(dq
+is re-parsed on the far side with quoting intact.
+.PP
+Background processes shed activation state inherited from the invoking
+shell (Python virtualenv, conda, nvm, rvm) so a new window starts clean.
+One that dies right away is reported with its stderr.
+.PP
+Example (user layer):
+.PP
+.EX
+opener: win
+
+wrappers:
+  kitty:
+    command: kitty \-\-title "$WF_TITLE" \-\-directory "$WF_WORKTREE" $SHELL \-c "$WF_COMMAND"
+    background: true
+  tmux:
+    command: tmux new\-window \-n "$WF_TITLE" \-c "$WF_WORKTREE" "export $WF_ENV; $WF_COMMAND"
+    background: true
+  direnv: 'direnv exec "$WF_WORKTREE" $SHELL \-c "$WF_COMMAND"'
+
+openers:
+  edit: $EDITOR "$WF_TARGET"      # in your terminal
+  code:                           # GUI app: detached
+    command: code "$WF_WORKTREE"
+    background: true
+  win: {from: edit, wrap: kitty}  # the editor, in a new kitty window
+  pane: {from: edit, wrap: tmux}  # the editor, in a new tmux window
+  env: {from: edit, wrap: direnv} # the editor here, through direnv
+  git: lazygit
+.EE
+.SH ENVIRONMENT
+Openers, wrappers, and scripts are plain shell commands run via
+.BR "$SHELL \-c" ,
+with one variable family exported \(em the same family the launched
+process and every script receive.
+Standard shell rules apply; there is no template syntax of workforest's
+own:
+.B \(dq$WF_X\(dq
+is exactly one argument, bare
+.B $WF_X
+word-splits, and a misspelled variable expands to nothing.
+.TP
+.B WF_MAIN
+Main worktree path, e.g.
+.IR /home/user/Projects/api .
+.TP
+.B WF_NAME
+Repository name, e.g.
+.IR api .
+.TP
+.B WF_WORKTREES_DIR
+The resolved
+.BR worktrees_dir .
+.TP
+.B WF_WORKTREE
+This worktree's path.
+.TP
+.B WF_BRANCH
+Its branch (empty when detached).
+.TP
+.B WF_TARGET
+The
+.B \-p
+argument, default
+.B .
+(openers and wrappers only).
+.TP
+.B WF_TITLE
+Window label,
+.RI \(dq NAME ": " BRANCH \(dq
+(openers and wrappers only).
+.TP
+.B WF_ENV
+All of the above as shell-quoted
+.I NAME=value
+assignments (openers and wrappers only).
+.TP
+.B WF_COMMAND
+In a wrapper: the opener command, unexpanded.
+.PP
+.B worktrees_dir
+sees only
+.BR $WF_MAIN " and " $WF_NAME .
+.BR setup_scripts " and " scripts
+receive
+.BR WF_MAIN ", " WF_NAME ", " WF_WORKTREE ", " WF_WORKTREES_DIR ", and " WF_BRANCH .
+.SH EXAMPLE
+A project file, committed to the repository:
+.PP
+.EX
+# .workforest.yaml
+symlinks: [node_modules, .env]
+setup_scripts:
+  - npm install \-\-prefer\-offline
+scripts:
+  test: npm test
+  migrate: npm run db:migrate
+.EE
+.SH FILES
+Fully commented reference configurations are installed with the package
+(for example under
+.IR /usr/share/doc/workforest/examples/ ):
+.BR config.yaml
+for the global layers and
+.B workforest.project.yaml
+for the project layers.
+.SH SEE ALSO
+.BR workforest (1)

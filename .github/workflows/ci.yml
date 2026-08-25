@@ -11,7 +11,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install system dependencies
-        run: pacman -Syu --noconfirm git python uv make zsh
+        run: pacman -Syu --noconfirm git python uv make zsh groff
 
       - uses: actions/checkout@v4
 
@@ -30,7 +30,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install system dependencies
-        run: pacman -Syu --noconfirm git python python-build python-installer python-wheel python-hatchling
+        run: pacman -Syu --noconfirm git python python-build python-installer python-wheel python-hatchling man-db
 
       - uses: actions/checkout@v4
 
@@ -45,3 +45,7 @@ jobs:
           /tmp/venv/bin/wf --version
           /tmp/venv/bin/workforest shell-init bash | bash -n
           /tmp/venv/bin/workforest shell-init zsh | head -1 | grep -q Workforest
+          # man pages ride along in the wheel's share/man data, and shell-init
+          # puts that directory on $MANPATH for venv installs
+          MANPATH=/tmp/venv/share/man man -w workforest wf 5 workforest wf
+          /tmp/venv/bin/workforest shell-init bash | grep -q 'MANPATH=/tmp/venv/share/man'

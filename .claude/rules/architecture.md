@@ -14,3 +14,8 @@
   on-disk state. Session lines are rewritten by JSON parsing, never by
   string substitution.
 - README.md is the project reference; there is no separate design document.
+  The man pages under `man/` (`workforest.1`, `workforest.5`) are its
+  installed counterpart: any change to commands, options, config keys,
+  environment variables, or exit codes updates both README.md and the
+  affected page in the same change. `tests/test_man.py` catches drift from
+  `cli.py`, not from prose — keep the wording in sync by hand.

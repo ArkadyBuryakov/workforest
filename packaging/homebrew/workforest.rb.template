@@ -24,6 +24,11 @@ class Workforest < Formula
   def install
     virtualenv_install_with_resources
 
+    # The wheel drops its man pages into the venv (libexec/share/man), which
+    # man(1) never searches; move them where Homebrew links them from.
+    man1.install Dir[libexec/"share/man/man1/*"]
+    man5.install Dir[libexec/"share/man/man5/*"]
+
     # Completions for the plain binary; the wf shell function itself comes
     # from `workforest shell-init` (see caveats).
     bash_completion.install "src/workforest/shell/completion.bash" => "workforest"
@@ -46,6 +51,10 @@ class Workforest < Formula
   test do
     assert_match version.to_s, shell_output("#{bin}/workforest --version")
     assert_match version.to_s, shell_output("#{bin}/wf --version")
+    assert_path_exists man1/"workforest.1"
+    assert_path_exists man1/"wf.1"
+    assert_path_exists man5/"workforest.5"
+    assert_path_exists man5/"wf.5"
     (testpath/"init.bash").write shell_output("#{bin}/workforest shell-init bash")
     system "bash", "-n", testpath/"init.bash"
   end
