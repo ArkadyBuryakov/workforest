@@ -2,9 +2,8 @@
 
 Completion must never break the shell: any error yields an empty candidate
 list, and everything stays on stdout as plain lines. Most topics emit bare
-names; the `commands` topic emits `NAME<TAB>KIND<TAB>DESCRIPTION` and the
-`branches` topic `NAME<TAB>LOCATION` so shells that can render descriptions
-(zsh) do, while others take field 1.
+names; `commands`, `openers` and `branches` emit `NAME<TAB>DESCRIPTION` so
+shells that can render descriptions (zsh) do, while others take field 1.
 """
 
 from workforest import commands, gitutil, launch
@@ -32,7 +31,7 @@ def _complete(topic: str) -> list[str]:
         case "scripts":
             return sorted(_config().scripts)
         case "openers":
-            return sorted(_config().openers)
+            return _openers()
         case "claude-sessions":
             return _claude_sessions()
         case _:
@@ -49,15 +48,15 @@ def _config() -> Config:
 def _commands() -> list[str]:
     from workforest.cli import SUBCOMMAND_HELP, _known_subcommands
 
-    known = _known_subcommands()
+    return [f"{name}\t{SUBCOMMAND_HELP[name]}" for name in sorted(_known_subcommands())]
+
+
+def _openers() -> list[str]:
     config = _config()
-    # An opener sharing a subcommand's name is shadowed by it (cli._preprocess
-    # dispatches known subcommands first), so don't offer it.
-    return [f"{name}\tcommand\t{SUBCOMMAND_HELP[name]}" for name in sorted(known)] + [
+    return [
         # collapse whitespace: a tab/newline in an opener command would break the line protocol
-        f"{name}\topener\t{' '.join(launch.describe_opener(config, name).split())}"
+        f"{name}\t{' '.join(launch.describe_opener(config, name).split())}"
         for name in sorted(config.openers)
-        if name not in known
     ]
 
 

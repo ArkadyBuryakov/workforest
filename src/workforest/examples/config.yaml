@@ -136,8 +136,7 @@ wrappers: {}
 #     command: tmux new-window -n "$WF_TITLE" -c "$WF_WORKTREE" "export $WF_ENV; $WF_COMMAND"
 #     background: true
 
-# Openers — WHAT to run, for -o NAME, the shortcut form (`wf NAME <worktree>`),
-# and the TUI opener carousel.
+# Openers — WHAT to run, for -o NAME and the TUI opener carousel.
 #
 # Default: {} — the TUI then falls back to two derived entries: the default
 # opener and $SHELL.

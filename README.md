@@ -76,9 +76,6 @@ wf delete fix-y             # remove a worktree (asks about dirty changes)
 wf                          # interactive TUI (fzf)
 ```
 
-Any unknown first word is an opener shortcut: `wf edit api` ≡
-`wf open api -o edit`.
-
 ## Configuration
 
 Layered, YAML or JSON; later layers override earlier ones:
@@ -237,8 +234,7 @@ workforest shell-init [bash|zsh]
 workforest claude copy-session SESSION_ID   # experimental
 ```
 
-`open` (and the opener shortcut, e.g. `wf edit`) without NAME opens the
-worktree you are standing in.
+`open` without NAME opens the worktree you are standing in.
 
 `create` resolves BRANCH in order: existing local branch, then a branch on
 exactly one remote (checked out tracking it), then a brand-new branch.

@@ -1,4 +1,4 @@
-"""cli: stdout/stderr contract, exit codes, shortcut dispatch."""
+"""cli: stdout/stderr contract, exit codes, argv preprocessing."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -75,29 +75,32 @@ class TestStdoutContract:
         assert "worktrees_dir:" in result.out
 
 
-class TestShortcut:
-    def test_unknown_first_word_opens_with_opener(self, run_cli: Run, repo: Repo) -> None:
+class TestOpenFlags:
+    def test_unknown_first_word_is_a_usage_error(self, run_cli: Run, repo: Repo) -> None:
+        """No opener shortcut: a typo'd subcommand must not launch anything."""
         run_cli("create", "feat", "--no-open", cwd=repo.path)
         result = run_cli("mytool", "feat", cwd=repo.path)
-        assert result.code == 0
-        assert result.out.strip().endswith(" mytool")
+        assert result.code == 2
+        assert result.out == ""
 
-    def test_shortcut_passes_path(self, run_cli: Run, repo: Repo) -> None:
+    def test_opener_passes_path(self, run_cli: Run, repo: Repo) -> None:
         run_cli("create", "feat", "--no-open", cwd=repo.path)
-        result = run_cli('mytool "$WF_TARGET"', "feat", "-p", "README.md", cwd=repo.path)
+        result = run_cli(
+            "open", "feat", "-o", 'mytool "$WF_TARGET"', "-p", "README.md", cwd=repo.path
+        )
         assert result.code == 0
         assert result.out.strip().endswith(""" 'mytool "$WF_TARGET"'""")
         assert "WF_TARGET=README.md" in result.out
 
-    def test_shortcut_with_wrap(self, run_cli: Run, repo: Repo) -> None:
+    def test_opener_with_wrap(self, run_cli: Run, repo: Repo) -> None:
         repo.write_project_config("wrappers:\n  env: 'direnv exec . $SHELL -c \"$WF_COMMAND\"'\n")
         run_cli("create", "feat", "--no-open", cwd=repo.path)
-        result = run_cli("mytool", "feat", "-w", "env", cwd=repo.path)
+        result = run_cli("open", "feat", "-o", "mytool", "-w", "env", cwd=repo.path)
         assert result.code == 0
         assert result.out.strip().endswith(
             """ WF_COMMAND=mytool /bin/sh -c 'direnv exec . $SHELL -c "$WF_COMMAND"'"""
         )
-        result = run_cli("mytool", "feat", "--wrap", "nope", cwd=repo.path)
+        result = run_cli("open", "feat", "-o", "mytool", "--wrap", "nope", cwd=repo.path)
         assert result.code == 1
         assert "unknown wrapper 'nope' (available: env)" in result.err
 
@@ -140,8 +143,7 @@ class TestRunPassthrough:
 
 class TestClaudeGate:
     def test_hidden_without_claude_dir(self, run_cli: Run, repo: Repo) -> None:
-        # "claude" is not a subcommand without ~/.claude: it falls through to
-        # the opener shortcut, and the extra argument is a usage error
+        # "claude" is not a subcommand without ~/.claude: usage error
         result = run_cli("claude", "copy-session", "x", cwd=repo.path)
         assert result.code == 2
 
