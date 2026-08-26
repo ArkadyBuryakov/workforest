@@ -1,0 +1,54 @@
+name: Publish VS Code extension
+
+# Publishes editors/vscode to the Visual Studio Marketplace when a release
+# is published, or on demand. The extension has a version of its own
+# (editors/vscode/package.json); a version already on the Marketplace is
+# skipped, so a workforest release without extension changes is a no-op.
+# Needs the VSCE_PAT secret (a Marketplace personal access token for the
+# publisher in package.json); without it the publish step is skipped.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: vscode-marketplace
+      url: https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: editors/vscode
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Compile, test, package
+        run: npm run check
+
+      - name: Publish
+        if: env.VSCE_PAT != ''
+        run: |
+          version=$(node -p "require('./package.json').version")
+          publisher=$(node -p "require('./package.json').publisher")
+          name=$(node -p "require('./package.json').name")
+          if npx vsce show "$publisher.$name" --json 2>/dev/null \
+             | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.exit(JSON.parse(d).versions.some(v=>v.version==='$version')?0:1))"; then
+            echo "$publisher.$name@$version is already on the Marketplace — nothing to publish."
+          else
+            npx vsce publish --no-dependencies --packagePath workforest-*.vsix
+          fi

@@ -379,6 +379,35 @@ checkout, in the same `name`/`branch`/`path`/`dirty` shape as each entry of
 `worktrees`) and the resolved `worktrees_dir` — for editor integrations
 and other programs.
 
+## VS Code extension
+
+`editors/vscode/` holds a VS Code extension that puts the forest in the
+editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
+its header and two collapsible sections, Scripts (run/stop with one
+click) and Worktrees (main checkout, then managed worktrees by recency,
+dirty markers, the worktree this window is in), commands to
+create, open, delete, and checkout worktrees, run and stop `scripts` in
+the integrated terminal, show the merged configuration, and scaffold the
+project or the `.vscode/.workforest.yaml` local config, plus a status bar
+item. It is a thin client: every action runs the `workforest` command
+(`list --json`, `config --json`, `--complete branches`, and the plain
+subcommands with `--force`/`--keep-branch` in place of terminal prompts),
+so the editor and your shell always agree.
+
+It needs `workforest` installed (see above; the `workforest.executable`
+setting points at it when it is off the PATH VS Code sees). Build and
+install it from a checkout until it is on the Marketplace:
+
+```sh
+cd editors/vscode
+npm install
+npm run check        # compile, unit tests, package → workforest-*.vsix
+code --install-extension workforest-*.vsix
+```
+
+`editors/vscode/README.md` is the extension's own reference (features,
+settings, troubleshooting).
+
 ## Development
 
 ```sh

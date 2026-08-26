@@ -1,0 +1,399 @@
+{
+  "name": "workforest",
+  "displayName": "Workforest",
+  "description": "Git worktree forest management: create, open, run scripts in, and clean up per-branch worktrees with the workforest CLI",
+  "version": "0.1.0",
+  "publisher": "ArkadyBuryakov",
+  "license": "MIT",
+  "author": {
+    "name": "Arkady Buryakov",
+    "email": "arkady@buryakov.pro"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArkadyBuryakov/workforest.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/ArkadyBuryakov/workforest#vs-code-extension",
+  "bugs": {
+    "url": "https://github.com/ArkadyBuryakov/workforest/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "worktree",
+    "branch",
+    "workforest",
+    "multi-repo"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "icon": "media/icon.png",
+  "contributes": {
+    "configuration": {
+      "title": "Workforest",
+      "properties": {
+        "workforest.executable": {
+          "type": "string",
+          "default": "workforest",
+          "markdownDescription": "The `workforest` command: a name on `PATH` or an absolute path (`~` is expanded). Everything the extension does goes through it."
+        },
+        "workforest.openIn": {
+          "type": "string",
+          "enum": [
+            "newWindow",
+            "currentWindow",
+            "ask"
+          ],
+          "enumDescriptions": [
+            "Open worktrees in a new VS Code window.",
+            "Replace the folder of this window.",
+            "Ask every time."
+          ],
+          "default": "newWindow",
+          "description": "Where 'Create Worktree' and 'Open Worktree' open the worktree."
+        },
+        "workforest.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the worktree this window is in on the status bar."
+        }
+      }
+    },
+    "views": {
+      "workforest": [
+        {
+          "id": "workforest.forest",
+          "name": "Workforest",
+          "contextualTitle": "Workforest",
+          "icon": "media/workforest.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "workforest.forest",
+        "contents": "The `workforest` command was not found.\n[Install Workforest](https://github.com/ArkadyBuryakov/workforest#install)\n[Set the Executable Path](command:workbench.action.openSettings?%5B%22workforest.executable%22%5D)\nWhen it is installed but not on the PATH VS Code sees, point the `workforest.executable` setting at it.",
+        "when": "workforest.state == missing"
+      },
+      {
+        "view": "workforest.forest",
+        "contents": "Open a folder inside a git repository to see its worktree forest.\n[Open Folder](command:vscode.openFolder)",
+        "when": "workforest.state == noRepo"
+      }
+    ],
+    "commands": [
+      {
+        "command": "workforest.create",
+        "title": "Create Worktree…",
+        "category": "Workforest",
+        "icon": "$(add)"
+      },
+      {
+        "command": "workforest.open",
+        "title": "Open Worktree…",
+        "category": "Workforest",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "workforest.openInNewWindow",
+        "title": "Open in New Window",
+        "category": "Workforest",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "workforest.openInCurrentWindow",
+        "title": "Open in This Window",
+        "category": "Workforest"
+      },
+      {
+        "command": "workforest.delete",
+        "title": "Delete Worktree…",
+        "category": "Workforest",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "workforest.checkout",
+        "title": "Checkout into Main Checkout…",
+        "category": "Workforest",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "workforest.runScript",
+        "title": "Run Script…",
+        "category": "Workforest",
+        "icon": "$(play)"
+      },
+      {
+        "command": "workforest.stopScript",
+        "title": "Stop Script…",
+        "category": "Workforest",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "workforest.openTerminal",
+        "title": "Open in Integrated Terminal",
+        "category": "Workforest",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "workforest.copyPath",
+        "title": "Copy Path",
+        "category": "Workforest"
+      },
+      {
+        "command": "workforest.showConfig",
+        "title": "Show Merged Configuration",
+        "category": "Workforest"
+      },
+      {
+        "command": "workforest.init",
+        "title": "Initialize Project Config (.workforest.yaml)",
+        "category": "Workforest"
+      },
+      {
+        "command": "workforest.initLocal",
+        "title": "Initialize Local Config (.vscode/.workforest.yaml)",
+        "category": "Workforest"
+      },
+      {
+        "command": "workforest.refresh",
+        "title": "Refresh",
+        "category": "Workforest",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "workforest.openSettings",
+        "title": "Settings…",
+        "category": "Workforest",
+        "icon": "$(gear)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "workforest.create",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "navigation@1"
+        },
+        {
+          "command": "workforest.open",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "navigation@2"
+        },
+        {
+          "command": "workforest.runScript",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "navigation@3"
+        },
+        {
+          "command": "workforest.checkout",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "navigation@4"
+        },
+        {
+          "command": "workforest.delete",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "navigation@5"
+        },
+        {
+          "command": "workforest.refresh",
+          "when": "view == workforest.forest",
+          "group": "navigation@6"
+        },
+        {
+          "command": "workforest.stopScript",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "1_scripts@1"
+        },
+        {
+          "command": "workforest.showConfig",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "2_config@1"
+        },
+        {
+          "command": "workforest.init",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "2_config@2"
+        },
+        {
+          "command": "workforest.initLocal",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "2_config@3"
+        },
+        {
+          "command": "workforest.openSettings",
+          "when": "view == workforest.forest",
+          "group": "3_settings@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "workforest.openInNewWindow",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "workforest.openTerminal",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "workforest.delete",
+          "when": "view == workforest.forest && viewItem =~ /^worktree/",
+          "group": "inline@3"
+        },
+        {
+          "command": "workforest.openInNewWindow",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "workforest.openInCurrentWindow",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)$/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "workforest.openTerminal",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "1_open@3"
+        },
+        {
+          "command": "workforest.runScript",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "2_scripts@1"
+        },
+        {
+          "command": "workforest.stopScript",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "2_scripts@2"
+        },
+        {
+          "command": "workforest.checkout",
+          "when": "view == workforest.forest && viewItem =~ /^worktree/",
+          "group": "3_lifecycle@1"
+        },
+        {
+          "command": "workforest.delete",
+          "when": "view == workforest.forest && viewItem =~ /^worktree/",
+          "group": "3_lifecycle@2"
+        },
+        {
+          "command": "workforest.copyPath",
+          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "group": "4_path@1"
+        },
+        {
+          "command": "workforest.create",
+          "when": "view == workforest.forest && viewItem == forest",
+          "group": "1_forest@1"
+        },
+        {
+          "command": "workforest.runScript",
+          "when": "view == workforest.forest && viewItem == script",
+          "group": "inline@1"
+        },
+        {
+          "command": "workforest.stopScript",
+          "when": "view == workforest.forest && viewItem == script",
+          "group": "inline@2"
+        },
+        {
+          "command": "workforest.runScript",
+          "when": "view == workforest.forest && viewItem == script",
+          "group": "1_run@1"
+        },
+        {
+          "command": "workforest.stopScript",
+          "when": "view == workforest.forest && viewItem == script",
+          "group": "1_run@2"
+        },
+        {
+          "command": "workforest.showConfig",
+          "when": "view == workforest.forest && viewItem == script",
+          "group": "2_config@1"
+        },
+        {
+          "command": "workforest.create",
+          "when": "view == workforest.forest && viewItem == section.worktrees",
+          "group": "1_section@1"
+        },
+        {
+          "command": "workforest.refresh",
+          "when": "view == workforest.forest && viewItem == section.worktrees",
+          "group": "1_section@2"
+        },
+        {
+          "command": "workforest.showConfig",
+          "when": "view == workforest.forest && viewItem == section.scripts",
+          "group": "1_section@1"
+        },
+        {
+          "command": "workforest.init",
+          "when": "view == workforest.forest && viewItem == section.scripts",
+          "group": "1_section@2"
+        },
+        {
+          "command": "workforest.initLocal",
+          "when": "view == workforest.forest && viewItem == section.scripts",
+          "group": "1_section@3"
+        },
+        {
+          "command": "workforest.refresh",
+          "when": "view == workforest.forest && viewItem == section.scripts",
+          "group": "2_section@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "workforest.openInNewWindow",
+          "when": "false"
+        },
+        {
+          "command": "workforest.openInCurrentWindow",
+          "when": "false"
+        },
+        {
+          "command": "workforest.copyPath",
+          "when": "false"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "workforest",
+          "title": "Workforest",
+          "icon": "media/workforest.svg"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "package": "vsce package --no-dependencies",
+    "smoke": "npm run compile && sh scripts/smoke.sh",
+    "check": "npm test && npm run package",
+    "icon": "rsvg-convert -w 128 -h 128 media/icon.svg -o media/icon.png"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.6.0"
+  }
+}

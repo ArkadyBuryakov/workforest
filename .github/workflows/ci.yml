@@ -53,3 +53,30 @@ jobs:
           git init -q /tmp/repo
           (cd /tmp/repo && /tmp/venv/bin/workforest init)
           test -s /tmp/repo/.workforest.yaml
+
+  vscode-extension:
+    # editors/vscode: compile, unit tests (node:test, no VS Code download),
+    # and a .vsix package — the same `npm run check` as locally.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Compile, test, package
+        run: npm run check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforest-vscode
+          path: editors/vscode/*.vsix
