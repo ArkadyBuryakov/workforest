@@ -6,6 +6,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -42,14 +43,14 @@ def build_context(cwd: Path | None = None) -> Context:
     return Context(cwd_root=cwd_root, main=main, config=config, worktrees_dir=worktrees_dir)
 
 
+def _is_managed(ctx: Context, worktree: gitutil.Worktree) -> bool:
+    return not worktree.is_main and worktree.path.parent == ctx.worktrees_dir
+
+
 def managed_worktrees(ctx: Context) -> list[gitutil.Worktree]:
     """Worktrees located directly inside the resolved worktrees dir —
     the only ones we list, complete, or delete."""
-    return [
-        worktree
-        for worktree in gitutil.list_worktrees(ctx.main)
-        if not worktree.is_main and worktree.path.parent == ctx.worktrees_dir
-    ]
+    return [w for w in gitutil.list_worktrees(ctx.main) if _is_managed(ctx, w)]
 
 
 def find_managed(ctx: Context, name: str) -> gitutil.Worktree:
@@ -198,16 +199,47 @@ def cmd_open(
     )
 
 
-def cmd_list(ctx: Context, *, porcelain: bool = False) -> CommandResult:
+def _dirty_flags(worktrees: list[gitutil.Worktree]) -> list[bool]:
+    """One `git status` per worktree; subprocess-bound, so run them together."""
+    if not worktrees:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
+        return list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
+
+
+def _worktree_json(worktree: gitutil.Worktree, dirty: bool) -> dict[str, Any]:
+    return {
+        "name": worktree.name,
+        "branch": worktree.branch,  # null when detached
+        "path": str(worktree.path),
+        "dirty": dirty,
+    }
+
+
+def _list_json(ctx: Context) -> str:
+    """The whole forest for programs (editor integrations): the main
+    checkout in the same shape as the worktrees, plus where they live."""
+    everything = gitutil.list_worktrees(ctx.main)
+    main, worktrees = everything[0], [w for w in everything if _is_managed(ctx, w)]
+    dirty = _dirty_flags([main, *worktrees])
+    data = {
+        "main": _worktree_json(main, dirty[0]),
+        "worktrees_dir": str(ctx.worktrees_dir),
+        "worktrees": [_worktree_json(w, d) for w, d in zip(worktrees, dirty[1:], strict=True)],
+    }
+    return json.dumps(data, indent=2)
+
+
+def cmd_list(ctx: Context, *, porcelain: bool = False, as_json: bool = False) -> CommandResult:
+    if as_json:
+        return _list_json(ctx)
     worktrees = managed_worktrees(ctx)
     if not worktrees:
         if porcelain:
             return ""
         output.info(f"no worktrees in {ctx.worktrees_dir} (create one with: wf create BRANCH)")
         return None
-    # One `git status` per worktree; subprocess-bound, so run them together.
-    with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
-        dirty = list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
+    dirty = _dirty_flags(worktrees)
     if porcelain:
         return "\n".join(
             "\t".join((w.name, w.branch or "", str(w.path), "1" if is_dirty else "0"))

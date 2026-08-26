@@ -337,7 +337,7 @@ scripts:
 ```
 workforest create [BRANCH] [-o OPENER] [-w WRAPPER] [-p PATH] [--no-hooks] [--no-open]
 workforest open   [NAME]   [-o OPENER] [-w WRAPPER] [-p PATH]
-workforest list   [--porcelain]
+workforest list   [--porcelain | --json]
 workforest delete NAME...  [--force] [--delete-branch | --keep-branch]
 workforest checkout NAME   [--force]
 workforest run    [-b] SCRIPT [ARGS...]
@@ -365,7 +365,11 @@ which is not a stable interface, so any Claude Code update may break it.
 Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config error
 · `128+N` the `run` command was killed by signal N.
 Human messages go to stderr; stdout carries only machine output (`cd`
-directives for the `wf` wrapper, `--porcelain` listings, dumps).
+directives for the `wf` wrapper, `--porcelain`/`--json` listings, dumps).
+`list --json` describes the whole forest for programs — `main` (the main
+checkout, in the same `name`/`branch`/`path`/`dirty` shape as each entry of
+`worktrees`) and the resolved `worktrees_dir` — for editor integrations
+and other programs.
 
 ## Development
 

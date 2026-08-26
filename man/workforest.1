@@ -31,7 +31,7 @@ workforest, wf \- git worktree forest management
 .IR PATH ]
 .YS
 .SY "workforest list"
-.RB [ \-\-porcelain ]
+.RB [ \-\-porcelain " | " \-\-json ]
 .YS
 .SY "workforest delete"
 .IR NAME .\|.\|.
@@ -188,6 +188,23 @@ and
 (dirty) or
 .B 0
 (clean), separated by tabs.
+.TP
+.B \-\-json
+The whole forest as a JSON object, for editor integrations and other
+programs:
+.B main
+(the main checkout) and each entry of
+.B worktrees
+carry
+.BR name ,
+.B branch
+(null when detached),
+.BR path ,
+and
+.B dirty
+(true/false);
+.B worktrees_dir
+is the resolved worktrees directory.
 .SS delete \fINAME\fR...
 Delete one or more worktrees.
 Every name is resolved before anything is removed, so a typo fails the
