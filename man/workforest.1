@@ -216,7 +216,14 @@ Skip the dirty-worktree confirmation.
 Run the named script from the merged configuration's
 .B scripts
 map, from the root of the current worktree.
-Extra arguments are shell-quoted and appended to the script command.
+Extra arguments are shell-quoted and appended to the script command (a
+group \(em a
+.B bulk
+or
+.B pipeline
+entry, see
+.BR workforest (5)
+\(em takes none).
 See
 .B ENVIRONMENT
 for the variables scripts receive.
@@ -239,10 +246,17 @@ while it is already running in this worktree (see
 .BR stop ).
 The exit status is the command's, or 128+\fIN\fR when it was killed by
 signal
-.IR N ;
-a command killed by SIGINT ends
+.IR N .
+A command killed by SIGINT \(em or exiting 130, as a shell does once its
+child was \(em is reported as interrupted, a warning rather than an
+error, and ends
 .B workforest
 by SIGINT as well, so a shell loop around it aborts.
+A group runs under a supervisor that takes the command's place in all of
+the above: a pipeline runs its members in order and ends with the first
+failing step's status; a bulk runs them at once, relays their output with
+the member's name as a line prefix, and ends with the first failing
+member's status once all have ended.
 .TP
 .BR \-b ", " \-\-background
 Detach instead: the command runs under a supervisor of its own with its
@@ -265,6 +279,9 @@ foreground or background, started from any terminal \(em with SIGTERM,
 then SIGKILL after
 .B stop_timeout
 seconds, and wait for its cleanup to finish.
+For a group this stops every member and waits for all of their cleanups,
+then the group's own; a member can also be stopped by name out from
+under a running group.
 Fails when nothing is running.
 .TP
 .B \-\-all

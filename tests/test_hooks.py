@@ -1,5 +1,6 @@
 """hooks: symlinks + git-status invisibility, setup scripts, named scripts."""
 
+import io
 import os
 import signal
 import subprocess
@@ -426,6 +427,43 @@ def _reaped_pid() -> int:
     return process.pid
 
 
+class TestInterrupted:
+    def test_ctrl_c_is_a_warning_not_an_error(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        out = tmp_path / "cleaned"
+        env = env_for(repo, repo.path, "main")
+        # a shell whose child died by SIGINT exits 130; `kill -INT 0` is the real thing
+        for name, spec in (
+            ("shell", _spec("exit 130", cleanup=f"echo ok > {out}")),
+            ("signal", _spec("kill -INT 0")),
+        ):
+            with pytest.raises(KeyboardInterrupt):
+                hooks.run_named_script(Config(scripts={name: spec}), name, cwd=repo.path, env=env)
+            err = capsys.readouterr().err
+            assert f"script {name!r} was interrupted" in err
+            assert "Error:" not in err
+        assert out.read_text() == "ok\n"
+
+    def test_interrupted_bulk_member_interrupts_the_group(
+        self, repo: Repo, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cfg = Config(
+            scripts={
+                "infra": _spec("exit 130"),
+                "web": _spec("exit 3"),
+                "dev": ScriptSpec(bulk=("infra", "web")),
+            }
+        )
+        with pytest.raises(KeyboardInterrupt):
+            hooks.run_named_script(cfg, "dev", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        err = capsys.readouterr().err
+        assert "infra | script 'infra' was interrupted" in err
+        assert "web   | Error: script 'web' failed with exit code 3" in err
+        assert "script 'dev' was interrupted" in err
+        assert "Error: member" not in err
+
+
 class TestKilledCommand:
     def test_exit_code_is_128_plus_signal(self, repo: Repo, tmp_path: Path) -> None:
         out = tmp_path / "cleaned"
@@ -628,3 +666,387 @@ class TestStop:
             env=env,
         )
         assert seen == [7, 2]
+
+
+def _spec(command: str, **kwargs: object) -> ScriptSpec:
+    return ScriptSpec(command, **kwargs)  # type: ignore[arg-type]
+
+
+class TestGroups:
+    """`bulk` and `pipeline` entries run through the same machinery as a
+    command: their supervisor is the group leader the parent waits on."""
+
+    def test_pipeline_runs_members_in_order_and_stops_at_failure(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        log = tmp_path / "steps"
+        cfg = Config(
+            scripts={
+                "a": _spec(f"echo a >> {log}"),
+                "b": _spec(f"echo b >> {log}; exit 3"),
+                "c": _spec(f"echo c >> {log}"),
+                "chain": ScriptSpec(pipeline=("a", "b", "c"), cleanup=f"echo done >> {log}"),
+            }
+        )
+        with pytest.raises(WorkforestError, match="script 'chain' failed with exit code 3"):
+            hooks.run_named_script(
+                cfg, "chain", cwd=repo.path, env=env_for(repo, repo.path, "main")
+            )
+        assert log.read_text() == "a\nb\ndone\n"
+        err = capsys.readouterr().err
+        assert f"running 'chain' in {repo.path}: a, b, c" in err
+        assert "'chain' step 1/3: a" in err
+        assert "'chain' step 2/3: b" in err
+        assert "step 3/3" not in err
+        assert "Error: script 'b' failed with exit code 3" in err
+
+    def test_pipeline_succeeds_when_every_step_does(self, repo: Repo, tmp_path: Path) -> None:
+        log = tmp_path / "steps"
+        cfg = Config(
+            scripts={
+                "a": _spec(f"echo a >> {log}"),
+                "b": _spec(f'echo "b $WF_BRANCH" >> {log}'),
+                "chain": ScriptSpec(pipeline=("a", "b")),
+            }
+        )
+        hooks.run_named_script(cfg, "chain", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        assert log.read_text() == "a\nb main\n"
+
+    def test_bulk_runs_members_at_once_with_prefixed_output(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        flag = tmp_path / "slow-started"
+        cfg = Config(
+            scripts={
+                "slow": _spec(f"touch {flag}; echo slow-out; echo slow-err >&2; sleep 0.3"),
+                # done only once `slow` has started: proof that they overlap
+                "quick": _spec(f"while ! test -f {flag}; do sleep 0.01; done; echo saw-slow"),
+                "both": ScriptSpec(bulk=("slow", "quick")),
+            }
+        )
+        started = time.monotonic()
+        hooks.run_named_script(cfg, "both", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        assert time.monotonic() - started < 2
+        err = capsys.readouterr().err
+        assert f"running 'both' in {repo.path}: slow, quick" in err
+        assert "slow  | slow-out\n" in err
+        assert "slow  | slow-err\n" in err
+        assert "quick | saw-slow\n" in err
+        assert "slow  | running 'slow' in" in err
+
+    def test_bulk_waits_for_all_and_reports_each_failure(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        log = tmp_path / "log"
+        cfg = Config(
+            scripts={
+                "bad": _spec("exit 3"),
+                "worse": _spec("sleep 0.2; exit 4"),
+                "fine": _spec(f"sleep 0.3; echo fine >> {log}"),
+                "all": ScriptSpec(bulk=("bad", "worse", "fine")),
+            }
+        )
+        with pytest.raises(WorkforestError, match="script 'all' failed with exit code 3"):
+            hooks.run_named_script(cfg, "all", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        assert log.read_text() == "fine\n"  # not cut short by the failures
+        err = capsys.readouterr().err
+        assert "bad   | Error: script 'bad' failed with exit code 3" in err
+        assert "Error: member 'bad' of 'all' failed with exit code 3" in err
+        assert "Error: member 'worse' of 'all' failed with exit code 4" in err
+        assert "member 'fine'" not in err
+
+    def test_bulk_member_killed_by_signal(self, repo: Repo) -> None:
+        cfg = Config(
+            scripts={
+                "victim": _spec("kill -TERM 0"),
+                "fine": _spec("true"),
+                "all": ScriptSpec(bulk=("fine", "victim")),
+            }
+        )
+        with pytest.raises(ScriptKilledError, match="script 'all' was killed by SIGTERM") as info:
+            hooks.run_named_script(cfg, "all", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        assert info.value.exit_code == 128 + signal.SIGTERM
+
+    def test_group_takes_no_arguments(self, repo: Repo) -> None:
+        cfg = Config(scripts={"a": _spec("true"), "g": ScriptSpec(bulk=("a",))})
+        with pytest.raises(
+            WorkforestError, match="'g' is a group of scripts and takes no arguments"
+        ):
+            hooks.run_named_script(cfg, "g", cwd=repo.path, env={}, extra_args=["x"])
+
+    def test_members_keep_their_own_records_while_the_group_runs(
+        self, repo: Repo, tmp_path: Path
+    ) -> None:
+        common = gitutil.git_common_dir(repo.path)
+        out = tmp_path / "seen"
+        probe = " && ".join(
+            f"test -f {jobs.record_path(common, name, repo.path)}" for name in ("m", "g")
+        )
+        cfg = Config(
+            scripts={"m": _spec(f"{probe} && echo yes > {out}"), "g": ScriptSpec(bulk=("m",))}
+        )
+        hooks.run_named_script(cfg, "g", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        assert out.read_text() == "yes\n"
+        assert jobs.jobs_for(common, "m") == [] and jobs.jobs_for(common, "g") == []
+
+    def test_member_already_running_fails_the_step(self, repo: Repo, tmp_path: Path) -> None:
+        cfg = Config(
+            scripts={
+                "srv": _spec("sleep 30", background=True),
+                "chain": ScriptSpec(pipeline=("srv",)),
+            }
+        )
+        env = env_for(repo, repo.path, "main")
+        hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
+        try:
+            with pytest.raises(WorkforestError, match="script 'chain' failed with exit code 1"):
+                hooks.run_named_script(cfg, "chain", cwd=repo.path, env=env)
+        finally:
+            hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)
+
+    def test_stop_group_stops_members_and_runs_every_cleanup(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cleaned = tmp_path / "cleaned"
+        cfg = Config(
+            scripts={
+                "s1": _spec("sleep 30", cleanup=f"echo s1 >> {cleaned}"),
+                "s2": _spec("sleep 30", cleanup=f"echo s2 >> {cleaned}"),
+                "servers": ScriptSpec(
+                    bulk=("s1", "s2"), background=True, cleanup=f"echo servers >> {cleaned}"
+                ),
+            }
+        )
+        env = env_for(repo, repo.path, "main")
+        common = gitutil.git_common_dir(repo.path)
+        hooks.run_named_script(cfg, "servers", cwd=repo.path, env=env)
+        wait_for(lambda: len(jobs.jobs_for(common, "s1") + jobs.jobs_for(common, "s2")) == 2)
+
+        hooks.stop_script(cfg, "servers", cwd=repo.path, env=env)
+
+        assert sorted(cleaned.read_text().split()) == ["s1", "s2", "servers"]
+        assert cleaned.read_text().endswith("servers\n")  # the group's own cleanup comes last
+        for name in ("s1", "s2", "servers"):
+            assert jobs.jobs_for(common, name) == []
+        log = jobs.log_path(common, "servers", repo.path).read_text()
+        assert "s1 | Error: script 's1' was killed by SIGTERM" in log
+        assert "Error: member 's2' of 'servers' was killed by SIGTERM" in log
+        assert "stopped by `wf stop` in 'api'" in log
+
+    def test_stop_one_member_out_of_a_running_bulk(self, repo: Repo, tmp_path: Path) -> None:
+        cleaned = tmp_path / "cleaned"
+        cfg = Config(
+            scripts={
+                "s1": _spec("sleep 30", cleanup=f"echo s1 >> {cleaned}"),
+                "s2": _spec("sleep 0.5"),
+                "servers": ScriptSpec(bulk=("s1", "s2"), background=True),
+            }
+        )
+        env = env_for(repo, repo.path, "main")
+        common = gitutil.git_common_dir(repo.path)
+        hooks.run_named_script(cfg, "servers", cwd=repo.path, env=env)
+        wait_for(lambda: jobs.jobs_for(common, "s1"))
+
+        hooks.stop_script(cfg, "s1", cwd=repo.path, env=env)
+
+        assert cleaned.read_text() == "s1\n"
+        wait_for(lambda: jobs.jobs_for(common, "servers") == [])  # s2 ends on its own
+        log = jobs.log_path(common, "servers", repo.path).read_text()
+        assert (
+            "s1 | Error: script 's1' was killed by SIGTERM (stopped by `wf stop` in 'api')" in log
+        )
+        assert "member 's2'" not in log
+
+    def test_nested_groups(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        log = tmp_path / "log"
+        cfg = Config(
+            scripts={
+                "a": _spec(f"echo a >> {log}"),
+                "b": _spec("echo b-out"),
+                "c": _spec("echo c-out"),
+                "pair": ScriptSpec(bulk=("b", "c")),
+                "chain": ScriptSpec(pipeline=("a", "pair")),
+            }
+        )
+        hooks.run_named_script(cfg, "chain", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        assert log.read_text() == "a\n"
+        err = capsys.readouterr().err
+        assert "'chain' step 2/2: pair" in err
+        assert "b | b-out\n" in err
+        assert "c | c-out\n" in err
+
+    def test_background_member_of_a_pipeline_is_started_and_left_running(
+        self, repo: Repo, tmp_path: Path
+    ) -> None:
+        cfg = Config(
+            scripts={
+                "srv": _spec("sleep 30", background=True),
+                "after": _spec("true"),
+                "chain": ScriptSpec(pipeline=("srv", "after")),
+            }
+        )
+        env = env_for(repo, repo.path, "main")
+        common = gitutil.git_common_dir(repo.path)
+        hooks.run_named_script(cfg, "chain", cwd=repo.path, env=env)
+        try:
+            [job] = jobs.jobs_for(common, "srv")
+            assert jobs.classify(job.record) is jobs.JobState.LIVE
+            assert jobs.jobs_for(common, "chain") == []
+        finally:
+            hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)
+
+    def test_stop_timeout_of_a_group_is_its_members_longest(self) -> None:
+        cfg = Config(
+            scripts={
+                "a": _spec("x", stop_timeout=5),
+                "b": _spec("x"),
+                "inner": ScriptSpec(bulk=("a", "b")),
+                "outer": ScriptSpec(pipeline=("inner",)),
+                "own": ScriptSpec(bulk=("a",), stop_timeout=2),
+                "loose": ScriptSpec(bulk=("gone",)),  # a hand-built Config may dangle
+            },
+            stop_timeout=3,
+        )
+        assert hooks._stop_timeout(cfg, cfg.scripts["b"]) == 3
+        assert hooks._stop_timeout(cfg, cfg.scripts["inner"]) == 5
+        assert hooks._stop_timeout(cfg, cfg.scripts["outer"]) == 5
+        assert hooks._stop_timeout(cfg, cfg.scripts["own"]) == 2
+        assert hooks._stop_timeout(cfg, cfg.scripts["loose"]) == 3
+
+
+class TestRunStep:
+    """The member runner's view of a run: an outcome, not an exception."""
+
+    def step(self, repo: Repo, cfg: Config, name: str) -> int:
+        job = hooks._prepare(cfg, name, cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        return hooks._run_step(job)
+
+    def test_outcomes(self, repo: Repo, capsys: pytest.CaptureFixture[str]) -> None:
+        cfg = Config(
+            scripts={
+                "ok": _spec("true"),
+                "bad": _spec("exit 5"),
+                "killed": _spec("kill -TERM 0"),
+                "interrupted": _spec("kill -INT 0"),
+            }
+        )
+        assert self.step(repo, cfg, "ok") == 0
+        assert self.step(repo, cfg, "bad") == 5
+        assert self.step(repo, cfg, "killed") == -signal.SIGTERM
+        assert self.step(repo, cfg, "interrupted") == -signal.SIGINT
+        err = capsys.readouterr().err
+        assert "Error: script 'bad' failed with exit code 5" in err
+        assert "Error: script 'killed' was killed by SIGTERM" in err
+        assert "script 'interrupted' was interrupted" in err
+        assert "Error: script 'interrupted'" not in err
+
+    def test_a_shell_exiting_130_counts_as_interrupted(
+        self, repo: Repo, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cfg = Config(scripts={"x": _spec("exit 130")})
+        assert self.step(repo, cfg, "x") == -signal.SIGINT
+        assert "script 'x' was interrupted" in capsys.readouterr().err
+
+    def test_background_member_counts_as_done(self, repo: Repo) -> None:
+        cfg = Config(scripts={"srv": _spec("sleep 30", background=True)})
+        assert self.step(repo, cfg, "srv") == 0
+        hooks.stop_script(cfg, "srv", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+
+    def test_unrunnable_shell_is_an_error_outcome(
+        self, repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setenv("SHELL", "/nonexistent/sh")
+        assert self.step(repo, Config(scripts={"x": _spec("true")}), "x") == 1
+        assert "cannot run 'x' via $SHELL" in capsys.readouterr().err
+
+
+class TestPrefixer:
+    def test_pads_to_the_longest_name(self) -> None:
+        prefixer = hooks._Prefixer(("api", "frontend"), color=False)
+        assert prefixer.feed("api", b"hello\n") == "api      | hello\n"
+        assert prefixer.feed("frontend", b"hi\n") == "frontend | hi\n"
+
+    def test_keeps_partial_lines_until_they_complete(self) -> None:
+        prefixer = hooks._Prefixer(("a",), color=False)
+        assert prefixer.feed("a", b"one\ntw") == "a | one\n"
+        assert prefixer.feed("a", b"o\nthree") == "a | two\n"
+        assert prefixer.flush("a") == "a | three\n"
+        assert prefixer.flush("a") == ""
+
+    def test_pty_line_endings_and_undecodable_bytes(self) -> None:
+        prefixer = hooks._Prefixer(("a",), color=False)
+        assert prefixer.feed("a", b"crlf\r\nraw \xff\n") == "a | crlf\na | raw �\n"
+
+    def test_colors_only_the_prefix(self) -> None:
+        prefixer = hooks._Prefixer(("a", "b"), color=True)
+        assert prefixer.feed("a", b"x\n") == "\033[36ma | \033[0mx\n"
+        assert prefixer.feed("b", b"x\n") == "\033[35mb | \033[0mx\n"
+
+
+class TestPump:
+    def runner(self, name: str, command: str, *, tty: bool = False) -> hooks._Runner:
+        read_fd, write_fd = hooks._open_channel(tty=tty)
+        process = subprocess.Popen(["sh", "-c", command], stdout=write_fd, stderr=write_fd)
+        os.close(write_fd)
+        return hooks._Runner(name, process.pid, read_fd)
+
+    def test_relays_every_runner_until_all_have_ended(self) -> None:
+        runners = [
+            self.runner("a", "echo a1; sleep 0.1; echo a2; exit 3"),
+            self.runner("b", "printf 'b-no-newline'"),
+        ]
+        sink = io.StringIO()
+        hooks._pump(runners, hooks._Prefixer(("a", "b"), color=False), sink)
+        assert sorted(sink.getvalue().splitlines()) == ["a | a1", "a | a2", "b | b-no-newline"]
+        assert [runner.code for runner in runners] == [3, 0]
+        assert all(runner.fd < 0 for runner in runners)
+
+    def test_a_daemon_holding_the_channel_does_not_hold_the_pump(self) -> None:
+        runners = [self.runner("a", "sleep 5 & echo hi")]
+        sink = io.StringIO()
+        started = time.monotonic()
+        hooks._pump(runners, hooks._Prefixer(("a",), color=False), sink)
+        assert time.monotonic() - started < 2
+        assert sink.getvalue() == "a | hi\n"
+
+    def test_pty_channel_gives_the_member_a_terminal(self) -> None:
+        runners = [self.runner("a", "test -t 1 && echo tty || echo no-tty", tty=True)]
+        sink = io.StringIO()
+        hooks._pump(runners, hooks._Prefixer(("a",), color=False), sink)
+        assert sink.getvalue() == "a | tty\n"
+
+    def test_pipe_channel_does_not(self) -> None:
+        runners = [self.runner("a", "test -t 1 && echo tty || echo no-tty")]
+        sink = io.StringIO()
+        hooks._pump(runners, hooks._Prefixer(("a",), color=False), sink)
+        assert sink.getvalue() == "a | no-tty\n"
+
+
+class TestBulkOutcome:
+    def outcome(self, *codes: int, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+        runners = [hooks._Runner(f"m{i}", 0, -1, code) for i, code in enumerate(codes)]
+        result = hooks._bulk_outcome("g", runners)
+        return result, capsys.readouterr().err
+
+    def test_all_good(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert self.outcome(0, 0, capsys=capsys) == (0, "")
+
+    def test_first_failure_wins_by_default(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code, err = self.outcome(0, 4, 3, capsys=capsys)
+        assert code == 4
+        assert "Error: member 'm1' of 'g' failed with exit code 4" in err
+        assert "Error: member 'm2' of 'g' failed with exit code 3" in err
+        assert "m0" not in err
+
+    def test_signal_deaths_win_over_statuses(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert self.outcome(4, -signal.SIGTERM, capsys=capsys)[0] == -signal.SIGTERM
+
+    def test_an_interruption_wins_and_is_not_an_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        for codes in ((4, -signal.SIGTERM, -signal.SIGINT), (4, 130)):
+            code, err = self.outcome(*codes, capsys=capsys)
+            assert code == -signal.SIGINT
+            assert err == ""

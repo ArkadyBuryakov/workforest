@@ -104,7 +104,7 @@ openers: {}             # name -> what `-o NAME` runs, and where
 wrappers: {}            # name -> command that runs $WF_COMMAND elsewhere (window, pane, direnv)
 symlinks: []            # untracked assets linked from main into new worktrees
 setup_scripts: []       # shell snippets run in a fresh worktree
-scripts: {}             # name -> command for `wf run NAME` (or a mapping, see Scripts)
+scripts: {}             # name -> command or group for `wf run NAME` (see Scripts)
 stop_timeout: 30        # seconds a stopped script gets after SIGTERM before SIGKILL
 ```
 
@@ -195,7 +195,7 @@ installed to `/usr/share/doc/workforest/examples/` by the Arch package.
 
 `wf run NAME [ARGS...]` runs a `scripts` entry from the root of the current
 worktree, with any extra arguments shell-quoted and appended. An entry is a
-shell command string, or a mapping:
+shell command string, a mapping, or a group of other entries (see below):
 
 ```yaml
 scripts:
@@ -216,9 +216,10 @@ terminal, so Ctrl-C and Ctrl-Z reach it directly; a signal sent to `wf`
 itself (SIGINT, SIGTERM, SIGHUP) is forwarded to the whole group. `cleanup`
 then runs — after a normal exit, a failure, or a kill — in the same
 worktree with the same `WF_*` variables. `wf run` fails with the command's
-status, or `128+N` when the command was killed by signal N; a command
-killed by SIGINT ends `wf` the way Ctrl-C would, so a shell loop around it
-aborts.
+status, or `128+N` when the command was killed by signal N. A command
+killed by SIGINT — or exiting 130, as a shell does once its child was — is
+reported as interrupted, a warning rather than an error, and ends `wf` the
+way Ctrl-C would, so a shell loop around it aborts.
 
 A `background` script (or `wf run -b NAME`) is detached instead: it runs
 under a supervisor of its own — the same process-group and cleanup
@@ -246,6 +247,48 @@ tidy by hand. A command still running after its `wf run` is gone (an
 orphan) is stopped and cleaned up by whoever stops it when `/proc`
 confirms the pid was not recycled; elsewhere it is reported and left
 alone.
+
+#### Groups
+
+A `bulk` entry runs other entries at once; a `pipeline` entry runs them one
+after another. Members are named, not written inline, so each keeps its own
+`exclusive`, `cleanup`, and `stop_timeout`, and a group may name another
+group (cycles are a config error):
+
+```yaml
+scripts:
+  migrate: npm run db:migrate
+  dev:
+    bulk: [backend, frontend]     # both at once; done when both have ended
+  fresh:
+    pipeline: [migrate, dev]      # in order; the first failure ends it
+    background: true
+```
+
+A group is a script like any other: `wf run -b`, `background`,
+`exclusive`, and `cleanup` apply to it, and `wf stop GROUP` stops every
+member, waits for all their cleanups, then runs the group's own. A group
+takes no extra arguments; its `stop_timeout` defaults to the longest of
+its members'. Members stay individually visible: `wf stop MEMBER` stops
+that member out from under a running group, and a member already running
+in the worktree fails its step.
+
+A pipeline's steps run like consecutive `wf run`s, each with the
+terminal; a `background` member is started and left running while the
+pipeline moves on. The pipeline ends with the first failing step's status.
+
+A bulk relays its members' output line by line, each line prefixed with
+the member's name:
+
+```
+backend  | Attaching to db-1, api-1
+frontend | VITE v5.4  ready in 312 ms
+backend  | api-1 | listening on :8000
+```
+
+Members cannot read the terminal, but Ctrl-C reaches them all. A bulk
+waits for every member — so `bulk: [lint, test, typecheck]` shows every
+failure, not just the first — and fails if any of them did.
 
 ### Script environment
 
@@ -283,6 +326,10 @@ scripts:
     background: true
     cleanup: docker compose down
     stop_timeout: 60
+  dev:
+    bulk: [backend, frontend]
+  fresh:
+    pipeline: [migrate, dev]
 ```
 
 ## Commands

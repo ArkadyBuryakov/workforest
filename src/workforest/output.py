@@ -15,7 +15,9 @@ _YELLOW = "\033[0;33m"
 _RESET = "\033[0m"
 
 
-def _colors_enabled() -> bool:
+def colors_enabled() -> bool:
+    """The NO_COLOR / CLICOLOR_FORCE / isatty policy for everything we
+    color; stderr is the stream that matters, since that is where we write."""
     if os.environ.get("NO_COLOR"):
         return False
     if os.environ.get("CLICOLOR_FORCE"):
@@ -24,7 +26,7 @@ def _colors_enabled() -> bool:
 
 
 def _emit(text: str, color: str) -> None:
-    if _colors_enabled():
+    if colors_enabled():
         print(f"{color}{text}{_RESET}", file=sys.stderr)
     else:
         print(text, file=sys.stderr)
@@ -43,7 +45,7 @@ def warn(text: str) -> None:
 
 
 def error(text: str) -> None:
-    if _colors_enabled():
+    if colors_enabled():
         print(f"{_RED}Error:{_RESET} {text}", file=sys.stderr)
     else:
         print(f"Error: {text}", file=sys.stderr)

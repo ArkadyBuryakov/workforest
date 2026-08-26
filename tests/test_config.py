@@ -255,6 +255,37 @@ class TestEntries:
     def test_stop_timeout_defaults_to_30(self) -> None:
         assert load_config().stop_timeout == 30.0
 
+    def test_script_groups(self, tmp_path: Path) -> None:
+        write_user_config(
+            "scripts:\n"
+            "  migrate: npm run db:migrate\n"
+            "  backend: {command: docker compose up, exclusive: true}\n"
+            "  frontend: npm run dev\n"
+            "  dev: {bulk: [backend, frontend], background: true, stop_timeout: 60}\n"
+            "  fresh: {pipeline: [migrate, dev], cleanup: echo done}\n"
+        )
+        cfg = load_config()
+        assert cfg.scripts["dev"] == ScriptSpec(
+            bulk=("backend", "frontend"), background=True, stop_timeout=60
+        )
+        assert cfg.scripts["fresh"] == ScriptSpec(pipeline=("migrate", "dev"), cleanup="echo done")
+        assert cfg.scripts["dev"].members == ("backend", "frontend")
+        assert cfg.scripts["migrate"].members == ()
+        data = cfg.as_dict()["scripts"]
+        assert data["dev"] == {
+            "bulk": ["backend", "frontend"],
+            "background": True,
+            "stop_timeout": 60,
+        }
+        assert data["fresh"] == {"pipeline": ["migrate", "dev"], "cleanup": "echo done"}
+
+    def test_member_removed_by_a_higher_layer_is_caught(self, tmp_path: Path) -> None:
+        write_user_config("scripts:\n  a: 'true'\n  dev: {bulk: [a]}\n")
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text("scripts:\n  a: null\n")
+        with pytest.raises(ConfigError, match=r"scripts\.dev: member 'a' names no script"):
+            load_config(project)
+
     def test_script_mapping_overrides_string_per_key(self, tmp_path: Path) -> None:
         write_user_config("scripts:\n  dev: npm run dev\n")
         project = make_project(tmp_path)
@@ -304,7 +335,46 @@ class TestEntries:
                 "scripts:\n  test: {command: x, cleanup: [a]}\n",
                 "scripts.test: 'cleanup' must be a non-empty string",
             ),
-            ("scripts:\n  test: {cleanup: x}\n", "scripts.test: 'command' is required"),
+            (
+                "scripts:\n  test: {cleanup: x}\n",
+                "scripts.test: exactly one of 'command', 'bulk', and 'pipeline' is required",
+            ),
+            (
+                "scripts:\n  test: {command: x, bulk: [a]}\n",
+                "scripts.test: exactly one of 'command', 'bulk', and 'pipeline' is required",
+            ),
+            (
+                "scripts:\n  test: {bulk: [a], pipeline: [b]}\n",
+                "scripts.test: exactly one of 'command', 'bulk', and 'pipeline' is required",
+            ),
+            (
+                "scripts:\n  test: {bulk: []}\n",
+                "scripts.test: 'bulk' must be a non-empty list of script names",
+            ),
+            (
+                "scripts:\n  test: {pipeline: a}\n",
+                "scripts.test: 'pipeline' must be a non-empty list of script names",
+            ),
+            (
+                "scripts:\n  test: {bulk: [a, '']}\n",
+                "scripts.test: 'bulk' must be a non-empty list of script names",
+            ),
+            (
+                "scripts:\n  a: 'true'\n  dev: {bulk: [a, nope]}\n",
+                "scripts.dev: member 'nope' names no script \\(known: a, dev\\)",
+            ),
+            (
+                "scripts:\n  a: 'true'\n  dev: {pipeline: [a, a]}\n",
+                "scripts.dev: member 'a' is listed more than once",
+            ),
+            (
+                "scripts:\n  dev: {bulk: [dev]}\n",
+                "scripts.dev: groups form a cycle: dev -> dev",
+            ),
+            (
+                "scripts:\n  a: {pipeline: [b]}\n  b: {bulk: [c]}\n  c: {pipeline: [a]}\n",
+                "scripts.c: groups form a cycle: a -> b -> c -> a",
+            ),
             (
                 "scripts:\n  test: {command: x, background: 1}\n",
                 "scripts.test: 'background' must be true or false",

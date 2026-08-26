@@ -58,14 +58,22 @@ setup_scripts:
 # conflicting names, and `NAME: null` removes a name inherited from a lower
 # layer.
 #
-# An entry is a shell command, or a mapping with `command` plus:
+# An entry is a shell command, or a mapping with exactly one of
+#   command: CMD      a shell command
+#   bulk: [NAMES]     other entries, run at once; output is relayed with the
+#                     member's name as a line prefix; fails if any member does
+#   pipeline: [NAMES] other entries, run in order; the first failure ends it
+# plus:
 #   background: true  detached, output in a log file (`workforest run -b` does
 #                     the same once); `workforest stop NAME` ends it
 #   exclusive: true   at most one instance per project — starting it stops
 #                     the running one in any worktree (cleanup included)
 #   cleanup: CMD      runs after the command ends, however it ended
 #   stop_timeout: N   seconds between SIGTERM and SIGKILL when stopped
-#                     (default: the top-level `stop_timeout`, 30)
+#                     (default: the top-level `stop_timeout`, 30; for a
+#                     group, the longest of its members')
+# Members keep their own settings and can be stopped by name; a group may
+# name another group.
 #
 # Default: {}
 # ---------------------------------------------------------------------------
@@ -82,6 +90,10 @@ scripts:
     background: true                # keep the terminal; `workforest stop backend` ends it
     cleanup: "docker compose down"  # tear it down even after a kill
     stop_timeout: 60                # containers take a while to come down
+  dev:
+    bulk: [backend, frontend]       # both at once, `workforest stop dev` ends both
+  fresh:
+    pipeline: [migrate, dev]        # migrate first, then the servers
   # sync: null        # example: hide a `sync` script defined in user config
 
 # ---------------------------------------------------------------------------
