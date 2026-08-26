@@ -21,4 +21,4 @@ packaging/AUR/.SRCINFO
 packaging/homebrew/workforest.rb
 
 # Tooling config
-.workforest.yaml
+/.workforest.yaml
