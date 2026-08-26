@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ArkadyBuryakov/workforest/HEAD/assets/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/ArkadyBuryakov/workforest/HEAD/assets/logo-light.svg" alt="Workforest logo" width="160">
+  </picture>
+</p>
+
 # Workforest
 
 ## Elevator pitch
