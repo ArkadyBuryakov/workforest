@@ -49,3 +49,7 @@ jobs:
           # puts that directory on $MANPATH for venv installs
           MANPATH=/tmp/venv/share/man man -w workforest wf 5 workforest wf
           /tmp/venv/bin/workforest shell-init bash | grep -q 'MANPATH=/tmp/venv/share/man'
+          # the init starter is package data too
+          git init -q /tmp/repo
+          (cd /tmp/repo && /tmp/venv/bin/workforest init)
+          test -s /tmp/repo/.workforest.yaml

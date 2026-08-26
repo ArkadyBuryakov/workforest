@@ -1,0 +1,21 @@
+# Workforest project config — commit this file. Every key is optional;
+# uncomment what this repo needs. Per-developer overrides (opener etc.)
+# go in .vscode/ or .idea/ (`wf init --local`), never here.
+# Full reference: `man 5 workforest`
+
+# Untracked assets shared from the main worktree into each new one
+# symlinks:
+#   - node_modules
+#   - .env
+
+# Commands run once inside a freshly created worktree
+# setup_scripts:
+#   - npm install
+
+# `wf run NAME` targets — a command, or a mapping with
+# command/bulk/pipeline + background/exclusive/cleanup/stop_timeout
+# scripts:
+#   test: npm test
+#   dev:
+#     command: npm run dev
+#     exclusive: true

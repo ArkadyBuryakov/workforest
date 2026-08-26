@@ -24,7 +24,7 @@ SUBCOMMAND_HELP: dict[str, str] = {
     "run": "run a named script from the merged config",
     "stop": "stop a running script (this worktree's instance, or --all)",
     "tui": "interactive mode (requires fzf)",
-    "init": "scaffold a .workforest.yaml project config",
+    "init": "write a commented .workforest.yaml starter",
     "config": "show the merged configuration and its sources",
     "shell-init": "print the wf shell wrapper (eval in your shell rc)",
     "claude": "Claude Code integration (experimental: may break on any Claude Code update)",

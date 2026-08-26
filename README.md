@@ -90,8 +90,9 @@ Layered, YAML or JSON; later layers override earlier ones:
 
 Scalars and lists replace; the `openers`/`wrappers`/`scripts` mappings
 merge per key (`null` removes an entry). `workforest config` shows the
-merged result and where each layer came from; `workforest init` scaffolds a
-project file (`--local` for a personal one). Nothing in the environment
+merged result and where each layer came from; `workforest init` writes a
+short, fully commented starter (`--local` for a personal one) — inert until
+you uncomment something. Nothing in the environment
 changes the result — files and flags only.
 
 All keys, with defaults:

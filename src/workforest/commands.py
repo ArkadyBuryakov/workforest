@@ -322,7 +322,7 @@ def cmd_stop(ctx: Context, name: str, *, everywhere: bool = False) -> CommandRes
 
 
 def _scaffold_template() -> str:
-    resource = importlib.resources.files("workforest") / "examples" / ".workforest.yaml"
+    resource = importlib.resources.files("workforest") / "templates" / "project.yaml"
     return resource.read_text()
 
 
@@ -341,7 +341,7 @@ def cmd_init(ctx: Context, *, local: bool = False) -> CommandResult:
     if target.exists():
         raise WorkforestError(f"{target} already exists")
     target.write_text(_scaffold_template())
-    output.success(f"scaffolded {target}")
+    output.success(f"scaffolded {target} (all keys commented out; see man 5 workforest)")
     return None
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from workforest import commands, gitutil
+from workforest.config import load_config
 from workforest.errors import CancelledError, UsageError, WorkforestError
 from workforest.launch import ShellAction
 
@@ -373,8 +374,12 @@ class TestInit:
         commands.cmd_init(ctx)
         scaffold = repo.path / ".workforest.yaml"
         assert scaffold.is_file()
-        # the scaffold must itself be a valid config
-        commands.build_context(repo.path)
+        # inert: every line is a comment, and loading it changes nothing
+        lines = scaffold.read_text().splitlines()
+        assert all(not line or line.startswith("#") for line in lines)
+        loaded = commands.build_context(repo.path).config
+        assert loaded.as_dict() == load_config(None).as_dict()
+        assert [s.layer for s in loaded.sources] == ["project"]
 
     def test_refuses_overwrite(self, repo: Repo) -> None:
         ctx = ctx_for(repo)
@@ -385,7 +390,8 @@ class TestInit:
     def test_local_into_vscode(self, repo: Repo) -> None:
         (repo.path / ".vscode").mkdir()
         commands.cmd_init(ctx_for(repo), local=True)
-        assert (repo.path / ".vscode" / ".workforest.yaml").is_file()
+        local = repo.path / ".vscode" / ".workforest.yaml"
+        assert local.read_text() == commands._scaffold_template()
 
     def test_local_without_settings_folder_errors(self, repo: Repo) -> None:
         with pytest.raises(WorkforestError, match="--local needs"):
