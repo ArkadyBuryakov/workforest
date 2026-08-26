@@ -1,0 +1,156 @@
+<idea-plugin>
+    <id>pro.buryakov.workforest</id>
+    <name>Workforest</name>
+    <vendor email="arkady@buryakov.pro" url="https://github.com/ArkadyBuryakov/workforest">Arkady Buryakov</vendor>
+
+    <description><![CDATA[
+    Git worktree forest management from the IDE, driven by the
+    <a href="https://github.com/ArkadyBuryakov/workforest">workforest</a> command line tool.
+    <p>
+    Your repo has one working directory; your AI agents want five. Workforest gives every
+    feature - and every agent - its own disposable git worktree in a predictable location,
+    set up by the project's own symlinks and setup scripts, so parallel work on the same repo
+    never collides.
+    <ul>
+      <li><b>Create Worktree</b>: pick a local or remote branch, or name a new one; the worktree
+          is created, set up, and opened as a project in a new window.</li>
+      <li><b>Open Worktree</b>: switch to any worktree of the forest — in a new window, this window, or ask.</li>
+      <li><b>Checkout Worktree</b>: collapse a worktree back into the main checkout.</li>
+      <li><b>Delete Worktree</b>: remove one, optionally with its branch.</li>
+      <li><b>Run Script</b> / <b>Stop Script</b>: a <code>scripts</code> entry of the project config, in a new
+          terminal tab of the chosen worktree.</li>
+      <li>Show the merged configuration, scaffold the project or local config, open a terminal in a worktree,
+          copy its path.</li>
+      <li>A <b>Workforest</b> tool window: the project's scripts, and the main checkout with the worktrees
+          (most recently opened first, uncommitted changes marked) — with tooltips, inline buttons, and context
+          menus — plus the current worktree on the status bar.</li>
+    </ul>
+    Requires the <code>workforest</code> CLI (<code>uv tool install workforest</code>, Homebrew, or the AUR);
+    set its path under Settings | Tools | Workforest when it is not on PATH.
+    ]]></description>
+
+    <change-notes><![CDATA[
+    <ul>
+      <li>0.1.0: create, open, checkout, and delete worktrees; run scripts in the terminal; the Workforest tool window.</li>
+    </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="workforest-terminal.xml">org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Workforest" anchor="left" secondary="true" icon="/icons/toolWindow.svg"
+                    factoryClass="pro.buryakov.workforest.idea.WorkforestToolWindowFactory"/>
+        <notificationGroup id="Workforest" displayType="BALLOON"/>
+        <postStartupActivity implementation="pro.buryakov.workforest.idea.RecordProjectOpenActivity"/>
+        <statusBarWidgetFactory id="Workforest" implementation="pro.buryakov.workforest.idea.WorkforestStatusBarFactory"
+                                order="after positionWidget"/>
+        <applicationConfigurable parentId="tools" id="pro.buryakov.workforest.idea.settings"
+                                 instance="pro.buryakov.workforest.idea.WorkforestConfigurable"
+                                 displayName="Workforest"/>
+    </extensions>
+
+    <applicationListeners>
+        <listener class="pro.buryakov.workforest.idea.RefreshOnActivation"
+                  topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+    </applicationListeners>
+
+    <actions>
+        <action id="Workforest.Create" class="pro.buryakov.workforest.idea.CreateWorktreeAction"
+                text="Create Worktree…" description="Create a worktree for a branch and open it"
+                icon="AllIcons.General.Add"/>
+        <action id="Workforest.Open" class="pro.buryakov.workforest.idea.OpenWorktreeAction"
+                text="Open Worktree…" description="Open the main checkout or a worktree"
+                icon="AllIcons.Actions.MenuOpen"/>
+        <action id="Workforest.OpenInNewWindow" class="pro.buryakov.workforest.idea.OpenInNewWindowAction"
+                text="Open in New Window" icon="AllIcons.Actions.OpenNewTab"/>
+        <action id="Workforest.OpenInThisWindow" class="pro.buryakov.workforest.idea.OpenInThisWindowAction"
+                text="Open in This Window"/>
+        <action id="Workforest.Checkout" class="pro.buryakov.workforest.idea.CheckoutWorktreeAction"
+                text="Checkout into Main Checkout…" description="Delete a worktree and check its branch out in the main checkout"
+                icon="AllIcons.Vcs.Branch"/>
+        <action id="Workforest.Delete" class="pro.buryakov.workforest.idea.DeleteWorktreeAction"
+                text="Delete Worktree…" description="Delete a worktree, optionally with its branch"
+                icon="AllIcons.Actions.GC"/>
+        <action id="Workforest.StopScript" class="pro.buryakov.workforest.idea.StopScriptAction"
+                text="Stop Script…" description="wf stop NAME in the chosen worktree"
+                icon="AllIcons.Actions.Suspend"/>
+        <action id="Workforest.CopyPath" class="pro.buryakov.workforest.idea.CopyPathAction"
+                text="Copy Path" icon="AllIcons.Actions.Copy"/>
+        <action id="Workforest.ShowConfig" class="pro.buryakov.workforest.idea.ShowConfigAction"
+                text="Show Merged Configuration" description="wf config, in an editor tab"
+                icon="AllIcons.FileTypes.Text"/>
+        <action id="Workforest.Init" class="pro.buryakov.workforest.idea.InitConfigAction"
+                text="Initialize Project Config (.workforest.yaml)" description="wf init"/>
+        <action id="Workforest.InitLocal" class="pro.buryakov.workforest.idea.InitLocalConfigAction"
+                text="Initialize Local Config (.idea/.workforest.yaml)" description="wf init --local"/>
+        <action id="Workforest.Refresh" class="pro.buryakov.workforest.idea.RefreshWorktreesAction"
+                text="Refresh" description="Re-read the forest" icon="AllIcons.Actions.Refresh"/>
+        <action id="Workforest.Settings" class="pro.buryakov.workforest.idea.OpenSettingsAction"
+                text="Settings…" icon="AllIcons.General.Settings"/>
+
+        <group id="Workforest.Menu" text="Workforest" description="Git worktree forest" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <reference ref="Workforest.Create"/>
+            <reference ref="Workforest.Open"/>
+            <reference ref="Workforest.Checkout"/>
+            <reference ref="Workforest.Delete"/>
+            <separator/>
+            <reference ref="Workforest.StopScript"/>
+            <separator/>
+            <reference ref="Workforest.ShowConfig"/>
+            <reference ref="Workforest.Init"/>
+            <reference ref="Workforest.InitLocal"/>
+            <separator/>
+            <reference ref="Workforest.Refresh"/>
+        </group>
+
+        <!-- header buttons: never the selection, always a chooser -->
+        <group id="Workforest.ToolWindowToolbar">
+            <reference ref="Workforest.Create"/>
+            <reference ref="Workforest.Open"/>
+            <reference ref="Workforest.Checkout"/>
+            <reference ref="Workforest.Delete"/>
+            <separator/>
+            <reference ref="Workforest.Refresh"/>
+            <group id="Workforest.More" popup="true" icon="AllIcons.Actions.More" text="More">
+                <reference ref="Workforest.StopScript"/>
+                <separator/>
+                <reference ref="Workforest.ShowConfig"/>
+                <reference ref="Workforest.Init"/>
+                <reference ref="Workforest.InitLocal"/>
+                <separator/>
+                <reference ref="Workforest.Settings"/>
+            </group>
+        </group>
+
+        <!-- context menus -->
+        <group id="Workforest.WorktreeMenu">
+            <reference ref="Workforest.OpenInNewWindow"/>
+            <reference ref="Workforest.OpenInThisWindow"/>
+            <separator/>
+            <reference ref="Workforest.StopScript"/>
+            <separator/>
+            <reference ref="Workforest.Checkout"/>
+            <reference ref="Workforest.Delete"/>
+            <separator/>
+            <reference ref="Workforest.CopyPath"/>
+        </group>
+        <group id="Workforest.ScriptMenu">
+            <reference ref="Workforest.StopScript"/>
+            <separator/>
+            <reference ref="Workforest.ShowConfig"/>
+        </group>
+        <group id="Workforest.WorktreesMenu">
+            <reference ref="Workforest.Create"/>
+            <reference ref="Workforest.Refresh"/>
+        </group>
+        <group id="Workforest.ScriptsMenu">
+            <reference ref="Workforest.ShowConfig"/>
+            <reference ref="Workforest.Init"/>
+            <reference ref="Workforest.InitLocal"/>
+            <separator/>
+            <reference ref="Workforest.Refresh"/>
+        </group>
+    </actions>
+</idea-plugin>

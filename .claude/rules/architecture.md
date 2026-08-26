@@ -38,3 +38,12 @@
   (warning, `wf` dies by SIGINT), never a failure. Forked-child bodies are
   `# pragma: no cover`; the logic lives in tested pure helpers
   (`_Prefixer`, `_pump`, `_bulk_outcome`, `_run_step`).
+- `editors/idea/` (the JetBrains plugin) is a thin client like the VS Code
+  one: it only ever spawns `workforest` — never git — and reads its machine
+  output (`list --json`, `--complete` lines, the last stderr line as the
+  error). Terminal prompts are replaced by IDE dialogs plus
+  `--force`/`--keep-branch`/`--delete-branch`. Parsing lives in
+  `Protocol.kt`, which is pure and unit-tested; `WorkforestCli.kt` is the
+  only file that spawns. `terminal/` is loaded only with the bundled
+  Terminal plugin (optional dependency). Verify with `./gradlew build
+  buildPlugin` there (JDK 21).
