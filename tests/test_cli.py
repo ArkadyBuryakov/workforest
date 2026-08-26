@@ -63,6 +63,16 @@ class TestStdoutContract:
         assert (name, branch, dirty) == ("feat", "feat", "0")
         assert path.endswith("worktrees/api/feat")
 
+    def test_list_json_on_stdout(self, run_cli: Run, repo: Repo) -> None:
+        import json
+
+        result = run_cli("list", "--json", cwd=repo.path)
+        assert result.code == 0
+        assert json.loads(result.out)["main"]["path"] == str(repo.path)
+
+    def test_list_formats_are_exclusive(self, run_cli: Run, repo: Repo) -> None:
+        assert run_cli("list", "--json", "--porcelain", cwd=repo.path).code == 2
+
     def test_checkout_emits_cd_to_main(self, run_cli: Run, repo: Repo) -> None:
         run_cli("create", "feat", "--no-open", cwd=repo.path)
         result = run_cli("checkout", "feat", cwd=repo.path)

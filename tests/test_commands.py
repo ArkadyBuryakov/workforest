@@ -246,6 +246,38 @@ class TestList:
         assert commands.cmd_list(ctx_for(repo)) is None
         assert commands.cmd_list(ctx_for(repo), porcelain=True) == ""
 
+    def test_json_covers_the_whole_forest(self, repo: Repo) -> None:
+        import json
+
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "feature/one", no_open=True)
+        repo.make_dirty()  # the main checkout
+        out = commands.cmd_list(ctx, as_json=True)
+        assert isinstance(out, str)
+        data = json.loads(out)
+        assert data["main"] == {
+            "name": "api",
+            "branch": "main",
+            "path": str(repo.path),
+            "dirty": True,
+        }
+        assert data["worktrees_dir"] == str(ctx.worktrees_dir)
+        assert data["worktrees"] == [
+            {
+                "name": "one",
+                "branch": "feature/one",
+                "path": str(ctx.worktrees_dir / "one"),
+                "dirty": False,
+            }
+        ]
+
+    def test_json_of_empty_forest_still_describes_main(self, repo: Repo) -> None:
+        import json
+
+        data = json.loads(commands.cmd_list(ctx_for(repo), as_json=True) or "")
+        assert data["worktrees"] == []
+        assert data["main"]["path"] == str(repo.path)
+
 
 class TestDelete:
     def test_clean_delete_keeps_branch_off_tty(self, repo: Repo) -> None:

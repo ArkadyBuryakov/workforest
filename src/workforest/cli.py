@@ -83,7 +83,7 @@ def _handle_open(ns: argparse.Namespace) -> CommandResult:
 
 def _handle_list(ns: argparse.Namespace) -> CommandResult:
     ctx = commands.build_context()
-    return commands.cmd_list(ctx, porcelain=ns.porcelain)
+    return commands.cmd_list(ctx, porcelain=ns.porcelain, as_json=ns.json)
 
 
 def _handle_delete(ns: argparse.Namespace) -> CommandResult:
@@ -177,7 +177,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_handle_open)
 
     p = sub.add_parser("list", help=SUBCOMMAND_HELP["list"])
-    p.add_argument("--porcelain", action="store_true", help="stable tab-separated output")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--porcelain", action="store_true", help="stable tab-separated output")
+    group.add_argument(
+        "--json", action="store_true", help="the whole forest (main checkout included) as JSON"
+    )
     p.set_defaults(func=_handle_list)
 
     p = sub.add_parser("delete", help=SUBCOMMAND_HELP["delete"])
