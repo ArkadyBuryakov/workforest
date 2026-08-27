@@ -25,7 +25,7 @@ _workforest_complete() {
         local IFS=$'\n'
         # cut: some topics emit NAME<TAB>DESCRIPTION; bash cannot display
         # descriptions, so keep only the name field.
-        COMPREPLY=($(compgen -W "$(workforest --complete "$topic" 2>/dev/null | cut -f1)" -- "$cur"))
+        COMPREPLY=($(compgen -W "$(command workforest --complete "$topic" 2>/dev/null | cut -f1)" -- "$cur"))
     fi
 }
 

@@ -181,6 +181,17 @@ class TestWfFunction:
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == str(ctx.worktrees_dir / "feat")
 
+    def test_workforest_is_the_same_function(self, shell: str, repo: Repo) -> None:
+        """Both spellings are the wrapper, so an alias for either (`alias
+        wfo='workforest open'`) changes directory too."""
+        ctx = commands.build_context(repo.path)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        script = f'eval "$(workforest shell-init {shell})"\nworkforest open feat -o true\npwd\n'
+
+        result = run_shell(shell, script, cwd=repo.path)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == str(ctx.worktrees_dir / "feat")
+
     def test_wf_passes_through_non_cd_output(self, shell: str, repo: Repo) -> None:
         ctx = commands.build_context(repo.path)
         commands.cmd_create(ctx, "feat", no_open=True)

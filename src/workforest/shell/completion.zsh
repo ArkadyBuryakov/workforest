@@ -20,7 +20,7 @@ _workforest_complete() {
         esac
     fi
     if [[ "$topic" != none ]]; then
-        items=(${(f)"$(workforest --complete "$topic" 2>/dev/null)"})
+        items=(${(f)"$(command workforest --complete "$topic" 2>/dev/null)"})
         if [[ "$topic" == (commands|openers|branches) ]]; then
             # NAME<TAB>DESCRIPTION → described candidates.
             for line in "${items[@]}"; do
