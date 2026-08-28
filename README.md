@@ -58,11 +58,12 @@ line to your `~/.bashrc` / `~/.zshrc`:
 eval "$(workforest shell-init)"
 ```
 
-This upgrades `wf` to a shell function (needed so `wf open` can change your
-shell's directory — a plain binary cannot), registers completions, and — for
-`uv tool`/`pipx` installs, whose files live in a venv — puts the man pages on
-`$MANPATH`. Without it everything still works, but "open in current shell"
-prints the `cd` command instead of performing it.
+This upgrades both `workforest` and `wf` to one shell function (needed so
+`open` can change your shell's directory — a plain binary cannot; either
+spelling, or an alias of either, behaves the same), registers completions,
+and — for `uv tool`/`pipx` installs, whose files live in a venv — puts the
+man pages on `$MANPATH`. Without it everything still works, but "open in
+current shell" prints the `cd` command instead of performing it.
 
 Reference: `man workforest` (commands) and `man 5 workforest` (the
 configuration files); `wf` works in place of `workforest` for both.
@@ -119,7 +120,7 @@ stop_timeout: 30        # seconds a stopped script gets after SIGTERM before SIG
 ### Openers
 
 An opener is a shell command that runs with the worktree root as working
-directory, either **in your terminal** (the default: the `wf` wrapper does
+directory, either **in your terminal** (the default: the shell function does
 `cd` there and runs it) or **in the background** (`background: true`:
 spawned detached, `wf` returns immediately — for GUI apps and commands that
 hand off to a daemon or multiplexer). Optionally it runs **through a
@@ -373,7 +374,7 @@ which is not a stable interface, so any Claude Code update may break it.
 Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config error
 · `128+N` the `run` command was killed by signal N.
 Human messages go to stderr; stdout carries only machine output (`cd`
-directives for the `wf` wrapper, `--porcelain`/`--json` listings, dumps).
+directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
 checkout, in the same `name`/`branch`/`path`/`dirty` shape as each entry of
 `worktrees`) and the resolved `worktrees_dir` — for editor integrations

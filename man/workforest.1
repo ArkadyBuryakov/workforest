@@ -106,7 +106,7 @@ After
 .B shell-init
 (see
 .BR "SHELL INTEGRATION" )
-it is a shell function that can change the calling shell's directory.
+both are one shell function that can change the calling shell's directory.
 .SH COMMANDS
 .SS create [\fIBRANCH\fR]
 Create (or reuse) a worktree for
@@ -396,15 +396,14 @@ A subprocess cannot change its parent shell's directory, so add to your
 eval "$(workforest shell-init)"
 .EE
 .PP
-This defines
-.B wf
-as a shell function that runs
-.B workforest
-and evaluates the directive it prints (a
+This defines both
+.BR workforest " and " wf
+as one shell function that runs the workforest binary and evaluates the
+directive it prints (a
 .B cd
-into the worktree, followed by the opener command); registers tab
-completion for both
-.BR wf " and " workforest ;
+into the worktree, followed by the opener command), so either spelling
+\(em or an alias of either \(em behaves the same; registers tab
+completion for both;
 and, when workforest was installed into a Python environment whose
 manual pages are not on the default search path (a
 .B uv tool
@@ -536,7 +535,6 @@ command was killed by signal
 .PP
 Human-readable messages go to stderr.
 Stdout carries only machine output: directives for the
-.B wf
 shell function, listings, and configuration dumps.
 .SH EXAMPLES
 .TP
