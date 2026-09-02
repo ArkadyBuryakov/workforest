@@ -1,4 +1,5 @@
-# Only the compiled extension, its manifest, and the docs ship in the .vsix.
+# Only the compiled extension, its manifest, the docs, and (in the
+# platform-specific builds) bin/workforest ship in the .vsix.
 .vscode/**
 src/**
 out/test/**

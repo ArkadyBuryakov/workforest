@@ -29,6 +29,10 @@ node_modules/
 editors/vscode/out/
 *.vsix
 
+# Bundled CLI binaries: built by packaging/binary/build.sh at package time
+editors/vscode/bin/
+editors/idea/bin/
+
 # Tooling config
 /.workforest.yaml
 /Makefile.local

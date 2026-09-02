@@ -3,8 +3,10 @@
 // Try:   ./gradlew runIde       (a sandboxed IntelliJ IDEA with the plugin)
 
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import java.util.concurrent.Callable
 
 plugins {
     id("java")
@@ -46,6 +48,29 @@ kotlin {
         // methods, no DefaultImpls bridges (which the Plugin Verifier
         // otherwise reports as overrides of internal ToolWindowFactory API).
         jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
+    }
+}
+
+// The CLI the plugin drives, shipped inside the plugin: one executable per
+// platform under bin/<os>-<arch>/, put there by packaging/binary/build.sh
+// before `./gradlew buildPlugin` (CI does that). A local build has no bin/
+// and the plugin falls back to an installed workforest, as it always did.
+tasks.withType<PrepareSandboxTask>().configureEach {
+    from(layout.projectDirectory.dir("bin")) {
+        // Under the plugin's own directory — the root of the plugin zip,
+        // and what pluginPath resolves to once the IDE has installed it.
+        into(Callable { pluginName.get() + "/bin" })
+    }
+}
+
+// Gradle normalises archive entries to 0644; the bundled CLI has to stay
+// executable. WorkforestCli restores the bit at runtime as well, for IDEs
+// that unzip without one.
+tasks.named<Zip>("buildPlugin") {
+    eachFile {
+        if (relativePath.segments.contains("bin")) {
+            permissions { unix("0755") }
+        }
     }
 }
 

@@ -13,6 +13,15 @@
 - `integrations/claude.py` is experimental: it reads Claude Code's private
   on-disk state. Session lines are rewritten by JSON parsing, never by
   string substitution.
+- The editor plugins ship the CLI they drive: `packaging/binary/build.sh`
+  freezes the wheel into one self-contained executable (PyInstaller) per
+  platform, which CI puts in `editors/vscode/bin/workforest` (one per
+  platform-specific `.vsix`) and `editors/idea/bin/<os>-<arch>/workforest`
+  (all of them in one plugin zip). Both trees build fine without it and
+  both prefer an installed `workforest`: the bundled copy is the last
+  candidate after the setting, `PATH`, and the usual install directories.
+  Neither client may add a second way to obtain the CLI — no downloading,
+  no installing on the user's behalf.
 - `editors/vscode/` (the VS Code extension) is a thin client: it only ever
   spawns `workforest` — never git — and reads its machine output
   (`list --json`, `config --json`, `--complete` lines). Terminal prompts are

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { expandHome } from '../cli';
+import { executableCandidates, expandHome } from '../cli';
 import {
   failureMessage,
   isNotARepo,
@@ -123,4 +123,36 @@ test('expandHome expands a leading ~ only', () => {
   assert.equal(expandHome('~/.local/bin/workforest', '/home/u'), '/home/u/.local/bin/workforest');
   assert.equal(expandHome('workforest', '/home/u'), 'workforest');
   assert.equal(expandHome('/opt/~/x', '/home/u'), '/opt/~/x');
+});
+
+test('executableCandidates uses an explicit setting alone', () => {
+  assert.deepEqual(
+    executableCandidates({ setting: ' ~/bin/wf ', path: '/usr/bin', home: '/home/u', bundled: '/ext/bin/workforest' }),
+    ['/home/u/bin/wf'],
+  );
+});
+
+test('executableCandidates searches PATH, then the install dirs, then the bundled copy', () => {
+  assert.deepEqual(
+    executableCandidates({ setting: '', path: '/opt/x/bin::/usr/bin', home: '/home/u', bundled: '/ext/bin/workforest' }),
+    [
+      '/opt/x/bin/workforest',
+      '/usr/bin/workforest',
+      '/home/u/.local/bin/workforest',
+      '/opt/homebrew/bin/workforest',
+      '/usr/local/bin/workforest',
+      '/usr/bin/workforest',
+      '/ext/bin/workforest',
+    ],
+  );
+});
+
+test('executableCandidates without a bundled copy ends at the install dirs', () => {
+  const candidates = executableCandidates({ setting: '', path: undefined, home: '/home/u', bundled: undefined });
+  assert.deepEqual(candidates, [
+    '/home/u/.local/bin/workforest',
+    '/opt/homebrew/bin/workforest',
+    '/usr/local/bin/workforest',
+    '/usr/bin/workforest',
+  ]);
 });

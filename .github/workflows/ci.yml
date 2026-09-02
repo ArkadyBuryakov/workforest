@@ -54,9 +54,36 @@ jobs:
           (cd /tmp/repo && /tmp/venv/bin/workforest init)
           test -s /tmp/repo/.workforest.yaml
 
+  binary:
+    # The self-contained executable the editor plugins ship
+    # (packaging/binary/build.sh). Only linux-x64 here, to keep PRs cheap:
+    # the other three platforms are built when publishing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the standalone executable
+        run: packaging/binary/build.sh
+
+      - name: Smoke test it (no Python, no venv, package data intact)
+        run: |
+          bin=$PWD/dist/binary/workforest
+          "$bin" --version
+          "$bin" shell-init bash | bash -n
+          git init -q /tmp/repo
+          cd /tmp/repo && "$bin" init && test -s .workforest.yaml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforest-binary-linux-x64
+          path: dist/binary/workforest
+
   vscode-extension:
     # editors/vscode: compile, unit tests (node:test, no VS Code download),
-    # and a .vsix package — the same `npm run check` as locally.
+    # and the platform-specific .vsix that carries the CLI in bin/.
+    needs: binary
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,11 +97,25 @@ jobs:
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: workforest-binary-linux-x64
+          path: editors/vscode/bin
+
+      - name: Make the bundled CLI executable
+        run: chmod +x bin/workforest
+
       - name: Install
         run: npm ci
 
-      - name: Compile, test, package
-        run: npm run check
+      - name: Compile and test
+        run: npm test
+
+      - name: Package for linux-x64
+        run: npm run package -- --target linux-x64
+
+      - name: The .vsix carries the CLI
+        run: unzip -l workforest-linux-x64-*.vsix | grep -q 'extension/bin/workforest'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -82,8 +123,11 @@ jobs:
           path: editors/vscode/*.vsix
 
   plugin-idea:
-    # The JetBrains plugin under editors/idea: compile, unit tests, and
-    # the plugin zip. verifyPlugin (downloads IDEs) is run by hand.
+    # The JetBrains plugin under editors/idea: compile, unit tests, and the
+    # plugin zip, which carries one CLI per platform under bin/<os>-<arch>/
+    # (only linux-x64 here; a published build ships all four).
+    # verifyPlugin (downloads IDEs) is run by hand.
+    needs: binary
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -98,8 +142,19 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: workforest-binary-linux-x64
+          path: editors/idea/bin/linux-x64
+
+      - name: Make the bundled CLI executable
+        run: chmod +x bin/linux-x64/workforest
+
       - name: Compile, test, package
         run: ./gradlew --no-daemon build buildPlugin
+
+      - name: The plugin zip carries the CLI
+        run: unzip -l build/distributions/*.zip | grep -q 'bin/linux-x64/workforest'
 
       - uses: actions/upload-artifact@v4
         with:

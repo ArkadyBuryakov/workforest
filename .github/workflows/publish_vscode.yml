@@ -1,11 +1,16 @@
 name: Publish VS Code extension
 
 # Publishes editors/vscode to the Visual Studio Marketplace when a release
-# is published, or on demand. The extension has a version of its own
-# (editors/vscode/package.json); a version already on the Marketplace is
-# skipped, so a workforest release without extension changes is a no-op.
-# Needs the VSCE_PAT secret (a Marketplace personal access token for the
-# publisher in package.json); without it the publish step is skipped.
+# is published, or on demand. One .vsix per platform, each carrying the
+# `workforest` executable for it (packaging/binary/build.sh), so installing
+# the extension is enough — no separate CLI install. Linux and macOS only:
+# that is what workforest supports.
+#
+# The extension has a version of its own (editors/vscode/package.json); a
+# version already on the Marketplace is skipped, so a workforest release
+# without extension changes is a no-op. Needs the VSCE_PAT secret (a
+# Marketplace personal access token for the publisher in package.json);
+# without it the publish step is skipped.
 
 on:
   release:
@@ -13,7 +18,36 @@ on:
   workflow_dispatch:
 
 jobs:
+  binaries:
+    # The CLI each .vsix ships, built on a runner of its own platform:
+    # PyInstaller freezes for the machine it runs on, it cannot cross-build.
+    strategy:
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-latest
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+          - target: darwin-x64
+            os: macos-13 # the last x86_64 macOS runner image
+          - target: darwin-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the standalone executable
+        run: packaging/binary/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforest-binary-${{ matrix.target }}
+          path: dist/binary/workforest
+
   publish:
+    needs: binaries
     runs-on: ubuntu-latest
     environment:
       name: vscode-marketplace
@@ -34,11 +68,26 @@ jobs:
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: workforest-binary-*
+          path: ${{ github.workspace }}/binaries
+
       - name: Install
         run: npm ci
 
-      - name: Compile, test, package
-        run: npm run check
+      - name: Compile and test
+        run: npm test
+
+      - name: Package one .vsix per platform, each with its own CLI
+        run: |
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            rm -rf bin && mkdir bin
+            cp "$GITHUB_WORKSPACE/binaries/workforest-binary-$target/workforest" bin/workforest
+            chmod +x bin/workforest
+            npx vsce package --no-dependencies --target "$target"
+          done
+          ls -l ./*.vsix
 
       - name: Publish
         if: env.VSCE_PAT != ''

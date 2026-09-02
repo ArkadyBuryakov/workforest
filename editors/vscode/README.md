@@ -18,17 +18,23 @@ a fresh one, and what `wf run NAME` does — all of it from the same
 
 ## Requirements
 
-- The `workforest` CLI, 0.6 or later — the view reads `workforest list
-  --json`, which older releases lack (`uv tool install workforest`,
-  `brew install arkadyburyakov/tap/workforest`, or `yay -S workforest`).
-  See the [install instructions](https://github.com/ArkadyBuryakov/workforest#install).
-- Linux or macOS. The extension runs where the repository is (it is a
-  workspace extension), so it works over Remote-SSH, containers, and WSL
-  too when `workforest` is installed there.
+- Linux or macOS, and git. The extension ships the `workforest` CLI it
+  drives — a self-contained executable in `bin/`, one per platform — so
+  nothing else has to be installed.
+- An installed `workforest` is preferred over the bundled one, and has to
+  be 0.6 or later: the view reads `workforest list --json`, which older
+  releases lack. Installing it (`uv tool install workforest`, `brew install
+  arkadyburyakov/tap/workforest`, `yay -S workforest`; see the [install
+  instructions](https://github.com/ArkadyBuryakov/workforest#install)) is
+  what gets you `wf` in your shell, the man pages, and `wf open`'s `cd`.
+- The extension runs where the repository is (it is a workspace extension),
+  so it works over Remote-SSH, containers, and WSL — the bundled CLI is the
+  remote's, since the remote installs its own platform's build.
 
-If the command is installed but VS Code cannot find it, set
-`workforest.executable` to its full path (`~/.local/bin/workforest` for
-`uv tool` installs).
+The search order is the `workforest.executable` setting, then `PATH`, then
+`~/.local/bin` (`uv tool`, pipx), `/opt/homebrew/bin`, `/usr/local/bin`,
+`/usr/bin`, then the bundled copy. Set `workforest.executable` to a full
+path to pin a particular one.
 
 ## Features
 
@@ -74,7 +80,7 @@ click it to switch.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `workforest.executable` | `workforest` | the command to run; a name on `PATH` or a path (`~` expands) |
+| `workforest.executable` | (empty) | the command to run: a path (`~` expands), or empty to search `PATH`, the usual install directories, and the bundled copy |
 | `workforest.openIn` | `newWindow` | where created/opened worktrees open: `newWindow`, `currentWindow`, or `ask` |
 | `workforest.statusBar` | `true` | show the current worktree on the status bar |
 
@@ -86,7 +92,7 @@ which you can also point at VS Code from the terminal (`wf create feat -o code`)
 ## Troubleshooting
 
 The **Workforest** output channel (View → Output) logs every `workforest`
-invocation with its stderr. A configuration error (`workforest` exits 4)
+invocation with the executable it resolved to, and its stderr. A configuration error (`workforest` exits 4)
 is shown as a warning; fix the file it names and refresh.
 
 ## Development
@@ -106,3 +112,12 @@ from the project logo by `assets/generate` in the repository root — edit
 repository with one worktree, starts an isolated VS Code (its own
 user-data and extensions directories) with the extension in development
 mode, and runs `src/smoke/index.ts` inside the extension host.
+
+`npm run check` builds a `.vsix` with no CLI in it — during development the
+installed `workforest` is used anyway. The published packages are one per
+platform, each with the executable that platform's runner froze:
+
+```sh
+../../packaging/binary/build.sh bin       # the CLI for this machine, into bin/
+npm run package -- --target linux-x64     # .vsix for one platform, carrying it
+```

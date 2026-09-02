@@ -1,7 +1,8 @@
 // Runs the workforest CLI. The only place a process is spawned; the
 // executable comes from Settings | Tools | Workforest, else PATH, else the
-// places `uv tool`, pipx, and Homebrew put it. Never git directly: the CLI
-// owns the forest, the plugin only drives it.
+// places `uv tool`, pipx, and Homebrew put it, else the copy the plugin
+// ships for this platform. Never git directly: the CLI owns the forest,
+// the plugin only drives it.
 package pro.buryakov.workforest.idea
 
 import com.intellij.execution.ExecutionException
@@ -9,10 +10,15 @@ import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.execution.process.ProcessOutput
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
 
 /** A CLI failure; the message is the CLI's own and is shown to the user. */
 open class WorkforestException(message: String, val exitCode: Int = -1, val stderr: String = "") : RuntimeException(message) {
@@ -25,6 +31,10 @@ class WorkforestNotFoundException : WorkforestException(
 )
 
 object WorkforestCli {
+    private const val PLUGIN_ID = "pro.buryakov.workforest"
+
+    private val log = logger<WorkforestCli>()
+
     private val fallbackLocations: List<Path> = listOf(
         Path.of(System.getProperty("user.home"), ".local", "bin", "workforest"), // uv tool, pipx
         Path.of("/opt/homebrew/bin/workforest"),
@@ -36,7 +46,35 @@ object WorkforestCli {
         val configured = WorkforestSettings.getInstance().executable
         if (!configured.isNullOrBlank()) return Path.of(expandHome(configured))
         PathEnvironmentVariableUtil.findInPath("workforest")?.let { return it.toPath() }
-        return fallbackLocations.firstOrNull { Files.isExecutable(it) } ?: throw WorkforestNotFoundException()
+        fallbackLocations.firstOrNull { Files.isExecutable(it) }?.let { return it }
+        return bundled() ?: throw WorkforestNotFoundException()
+    }
+
+    /**
+     * The executable shipped inside the plugin, for people who never
+     * installed the CLI. Null when this build carries none for the
+     * platform. Unzipping a plugin can drop the executable bit; restore it.
+     */
+    private fun bundled(): Path? {
+        val relative = bundledRelativePath(
+            System.getProperty("os.name").orEmpty(),
+            System.getProperty("os.arch").orEmpty(),
+        ) ?: return null
+        val plugin = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID)) ?: return null
+        val path = plugin.pluginPath.resolve(relative)
+        if (!Files.isRegularFile(path)) return null
+        if (!Files.isExecutable(path)) {
+            try {
+                Files.setPosixFilePermissions(
+                    path,
+                    Files.getPosixFilePermissions(path) + PosixFilePermission.OWNER_EXECUTE,
+                )
+            } catch (e: IOException) {
+                log.warn("cannot make the bundled workforest executable: $path", e)
+                return null
+            }
+        }
+        return path
     }
 
     private fun expandHome(path: String): String =
