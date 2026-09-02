@@ -20,10 +20,8 @@ import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.TreeSpeedSearch
 import com.intellij.ui.content.ContentFactory
-import com.intellij.ui.hover.TreeHoverListener
 import com.intellij.ui.render.RenderingUtil
 import com.intellij.ui.treeStructure.Tree
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.tree.TreeUtil
 import java.awt.Component
 import java.awt.Graphics
@@ -31,9 +29,11 @@ import java.awt.Point
 import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.event.MouseMotionAdapter
 import java.nio.file.Path
 import javax.swing.Icon
 import javax.swing.JTree
+import javax.swing.SwingUtilities
 import javax.swing.ToolTipManager
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
@@ -69,7 +69,7 @@ private const val ICON = 16
 private const val GAP = 4
 private const val LEAD = 8
 
-/** The buttons a row shows while hovered or selected; absent actions (no Terminal plugin) are skipped. */
+/** The buttons the selected row shows; absent actions (no Terminal plugin) are skipped. */
 private fun inlineButtons(node: Any?): List<InlineButton> {
     fun button(id: String, icon: Icon, text: String) = InlineButton(id, icon, text).takeIf { ActionsUtil.exists(id) }
     return when (node) {
@@ -99,15 +99,16 @@ private fun buttonsWidth(count: Int) = LEAD + GAP + count * (ICON + GAP)
 /**
  * The forest as a tree: the config's scripts, then the worktrees (main
  * checkout first, then by recency; the one this window is in bold). Rows
- * carry a tooltip, inline buttons on hover, and a context menu; the
- * toolbar's buttons act on nothing but ask. Double-click opens a worktree
- * or runs a script.
+ * carry a tooltip, inline buttons while hovered or selected, and a
+ * context menu; the toolbar's buttons act on nothing but ask.
+ * Double-click opens a worktree or runs a script.
  */
 class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, true), Disposable {
     private val root = DefaultMutableTreeNode()
     private val model = DefaultTreeModel(root)
     private val here: Path? = project.basePath?.let { Path.of(it) }
     private var worktrees: List<Worktree> = emptyList() // what the running badges are counted from
+    private var hoveredRow = -1 // the row under the pointer, tracked here: see hover()
     private val tree: Tree = object : Tree(model) {
         override fun getToolTipText(event: MouseEvent): String? {
             buttonAt(event.point)?.let { return it.second.text }
@@ -117,17 +118,14 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
 
         // The inline buttons: an overlay at the right edge of the visible
         // area for the hovered and the selected row, over whatever the
-        // row's text reaches there (a long path), never part of the row.
+        // row's text reaches there (a long branch), never part of the row.
         override fun paintComponent(g: Graphics) {
             super.paintComponent(g)
-            val hovered = TreeHoverListener.getHoveredRow(this)
-            val selected = selectionRows?.firstOrNull() ?: -1
-            for (row in setOf(hovered, selected)) {
-                if (row < 0) continue
-                paintButtons(g, row, selected = row == selected)
-            }
+            for (row in 0 until rowCount) if (buttonsVisibleOn(row)) paintButtons(g, row)
         }
     }
+
+    private val scroll = ScrollPaneFactory.createScrollPane(tree)
 
     init {
         tree.isRootVisible = false
@@ -135,12 +133,16 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         tree.selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
         tree.cellRenderer = TextRenderer()
         tree.emptyText.text = "Listing worktrees…"
+        // A long row stays inside the tool window: no expanded-item popup over the editor.
+        tree.setExpandableItemsEnabled(false)
         ToolTipManager.sharedInstance().registerComponent(tree)
         TreeSpeedSearch.installOn(tree)
-        object : TreeHoverListener() {
-            override fun onHover(tree: JTree, row: Int) = tree.repaint()
-        }.addTo(tree)
+        tree.addMouseMotionListener(object : MouseMotionAdapter() {
+            override fun mouseMoved(e: MouseEvent) = hover(rowAt(e.point))
+        })
         tree.addMouseListener(object : MouseAdapter() {
+            override fun mouseExited(e: MouseEvent) = hover(-1)
+
             override fun mousePressed(e: MouseEvent) {
                 if (e.button != MouseEvent.BUTTON1 || e.isPopupTrigger) return
                 val (node, button) = buttonAt(e.point) ?: return
@@ -183,7 +185,7 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         val toolbar = actionManager.createActionToolbar(TOOLBAR_PLACE, group, true)
         toolbar.targetComponent = this
         setToolbar(toolbar.component)
-        setContent(ScrollPaneFactory.createScrollPane(tree))
+        setContent(scroll)
         WorktreeService.getInstance(project).addListener({ show(it) }, this)
     }
 
@@ -218,27 +220,55 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         val buttons = inlineButtons(userObject(tree.getPathForRow(row)))
         if (buttons.isEmpty()) return emptyList()
         val bounds = tree.getRowBounds(row) ?: return emptyList()
-        val visible = tree.visibleRect
-        val first = visible.x + visible.width - buttonsWidth(buttons.size) + LEAD + GAP
+        val first = buttonsRight() - buttonsWidth(buttons.size) + LEAD + GAP
         val y = bounds.y + (bounds.height - ICON) / 2
         return buttons.mapIndexed { i, button -> button to Rectangle(first + i * (ICON + GAP), y, ICON, ICON) }
     }
 
-    private fun paintButtons(g: Graphics, row: Int, selected: Boolean) {
+    /**
+     * The right edge the buttons hug: the visible area's, pulled left of an
+     * overlay scrollbar drawn over it (a scrollbar laid out beside the
+     * viewport is already outside the visible area).
+     */
+    private fun buttonsRight(): Int {
+        val visible = tree.visibleRect
+        val right = visible.x + visible.width
+        val bar = scroll.verticalScrollBar
+        if (bar == null || !bar.isShowing) return right
+        return minOf(right, SwingUtilities.convertPoint(bar, 0, 0, tree).x)
+    }
+
+    private fun paintButtons(g: Graphics, row: Int) {
         val rects = buttonRects(row)
         if (rects.isEmpty()) return
         val bounds = tree.getRowBounds(row) ?: return
         val visible = tree.visibleRect
         val left = rects.first().second.x - LEAD - GAP
-        g.color = if (selected) RenderingUtil.getBackground(tree, true) else JBUI.CurrentTheme.Tree.Hover.background(tree.hasFocus())
+        g.color = RenderingUtil.getBackground(tree, row == selectedRow())
         g.fillRect(left, bounds.y, visible.x + visible.width - left, bounds.height)
         for ((button, rect) in rects) button.icon.paintIcon(tree, g, rect.x, rect.y)
     }
 
-    /** The inline button under [point], with its row's item. */
+    /** The row under the pointer; the buttons follow it, so a move repaints. */
+    private fun hover(row: Int) {
+        if (row == hoveredRow) return
+        hoveredRow = row
+        tree.repaint()
+    }
+
+    private fun selectedRow(): Int = tree.selectionRows?.firstOrNull() ?: -1
+
+    /**
+     * Whether [row] draws its inline buttons: the hovered row and the
+     * selected one. The one predicate painting and hit-testing share, so
+     * the click area can never outlive the icons.
+     */
+    private fun buttonsVisibleOn(row: Int): Boolean = row >= 0 && (row == hoveredRow || row == selectedRow())
+
+    /** The inline button under [point], with its row's item; only where the buttons are drawn. */
     private fun buttonAt(point: Point): Pair<Any?, InlineButton>? {
         val row = rowAt(point)
-        if (row < 0) return null
+        if (!buttonsVisibleOn(row)) return null
         val hit = buttonRects(row).firstOrNull { (_, rect) -> rect.contains(point) } ?: return null
         return userObject(tree.getPathForRow(row)) to hit.first
     }
@@ -368,7 +398,6 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
             append("  ${if (worktree.isMain) "main checkout · $branch" else branch}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             if (worktree.dirty) append(" ●", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.ORANGE))
             if (current) append("  (this window)", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-            append("  ${worktree.path}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
         }
     }
 }

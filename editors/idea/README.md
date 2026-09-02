@@ -22,9 +22,10 @@ collapsible sections:
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened in this IDE first (never-opened ones by creation
   time), each with its branch, a `●` when it has uncommitted changes, and
-  which one this window is in (bold). Hovering a row shows its details
-  and inline buttons: open in a new window, open a terminal there, delete.
-  Double-click opens it (as the *Open worktrees in* setting says).
+  which one this window is in (bold). Hovering a row shows its details —
+  including its path — and its inline buttons: open in a new window, open
+  a terminal there, delete. Double-click opens it (as the *Open worktrees
+  in* setting says).
 
 Every row has a **context menu** with the rest: worktrees — open in a new
 or this window, open in terminal, run / stop a script *in that worktree*,
@@ -204,11 +205,18 @@ found`), so for those, run the plugin.
   they are absent.
 - `WorkforestToolWindow.kt` — the tree (scripts, then worktrees) with
   tooltips, inline buttons (painted as an overlay at the right edge of the
-  visible area for the hovered and the selected row — never part of the
-  row, so a long path cannot push them out of reach — and hit-tested on
-  the same rectangles), and context menus, fed by `WorktreeService`, which re-reads the forest
-  after every action, on window activation, and on VFS changes under the
-  main checkout's `.git/worktrees`, `.git/HEAD`, and the config files
+  visible area — left of an overlay scrollbar drawn over it — for the
+  hovered and the selected row, never part of the row, so a long branch
+  cannot push them out of reach, and hit-tested on the same rectangles,
+  behind the same `buttonsVisibleOn` predicate, so a button is never
+  clickable where it is not drawn; the hovered row is tracked by the panel
+  itself, as `TreeHoverListener.getHoveredRow` only answers for the
+  platform's own `DEFAULT` listener), and context menus. Expandable items
+  are off: a row too long for the tool window is cut there rather than
+  popped out over the editor, where the buttons could not follow it. Fed
+  by `WorktreeService`, which re-reads the forest after every action, on
+  window activation, and on VFS changes under the main checkout's
+  `.git/worktrees`, `.git/HEAD`, and the config files
   (watched even when outside the project), and orders it with `Recency`
   (last opened in this IDE — recorded by `RecordProjectOpenActivity`, as
   `RecentProjectsManager` is internal API — else creation time).
