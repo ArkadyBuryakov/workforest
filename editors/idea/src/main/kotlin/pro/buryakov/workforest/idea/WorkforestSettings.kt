@@ -62,7 +62,8 @@ class WorkforestConfigurable : BoundConfigurable("Workforest") {
                     .bindText({ settings.executable ?: "" }, { settings.executable = it })
                     .comment(
                         "Path to the <code>workforest</code> command. Leave empty to find it on PATH, " +
-                            "then in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin, and /usr/bin.",
+                            "then in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin, and /usr/bin, " +
+                            "and failing that to use the copy shipped with this plugin.",
                     )
             }
             row("Open worktrees in:") {

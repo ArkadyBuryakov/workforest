@@ -71,6 +71,10 @@ configuration files); `wf` works in place of `workforest` for both.
 Requirements: Linux or macOS, git ≥ 2.36, Python ≥ 3.14 (the AUR and
 Homebrew packages bring their own). Optional: `fzf` for the TUI.
 
+For the editor integration alone there is nothing to install: the [VS Code
+extension](#vs-code-extension) and the [JetBrains plugin](#jetbrains-ide-plugin)
+bring their own binary.
+
 ## Quick start
 
 ```sh
@@ -399,11 +403,9 @@ agree. Deleting or checking out the worktree open in the current window
 opens the main checkout in its place — the IDE's version of `wf`'s `cd`
 back.
 
-It needs `workforest` installed (see above; found on `PATH`, then in
-`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` — *Settings | Tools |
-Workforest* points at it otherwise). Build and install it from a checkout
-until it is on the Marketplace (any JDK runs Gradle, even the IDE's bundled
-one; the JDK 21 it compiles with is fetched automatically):
+Build and install the plugin from a checkout until it is on the Marketplace
+(any JDK runs Gradle, even the IDE's bundled one; the JDK 21 it compiles
+with is fetched automatically): `# TO DO`
 
 ```sh
 cd editors/idea
@@ -432,9 +434,8 @@ item. It is a thin client: every action runs the `workforest` command
 subcommands with `--force`/`--keep-branch` in place of terminal prompts),
 so the editor and your shell always agree.
 
-It needs `workforest` installed (see above; the `workforest.executable`
-setting points at it when it is off the PATH VS Code sees). Build and
-install it from a checkout until it is on the Marketplace:
+Build and install the extension from a checkout until it is on the
+Marketplace: `# TO DO`
 
 ```sh
 cd editors/vscode
@@ -476,6 +477,8 @@ them in the venv where `workforest shell-init` points `$MANPATH`.
 Packaging templates live under `packaging/` (one directory per package
 manager: `packaging/AUR/`, `packaging/homebrew/`); the `@VERSION@` and
 `@SHA256@` placeholders are filled in at release time.
+`packaging/binary/` builds the self-contained `workforest` executable the
+editor plugins ship; each editor's README says how to bundle it.
 Release: bump `__version__` and push to main — CI tags the release,
 renders the templates, and publishes to PyPI, the AUR, and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The

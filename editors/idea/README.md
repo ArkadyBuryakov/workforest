@@ -64,9 +64,11 @@ it.
 
 - **Executable** — the `workforest` command. Empty (the default) finds it
   on the `PATH` the IDE sees, then in `~/.local/bin` (`uv tool`, pipx),
-  `/opt/homebrew/bin`, `/usr/local/bin`, and `/usr/bin`. Set it when the
+  `/opt/homebrew/bin`, `/usr/local/bin`, and `/usr/bin`, and failing all
+  of those falls back to the copy shipped inside the plugin
+  (`bin/<os>-<arch>/workforest` in the plugin directory). Set it when the
   IDE was launched without your shell's `PATH` (macOS dock, a desktop
-  launcher).
+  launcher), or to pin one particular install.
 - **Open worktrees in** — where Create and Open put the worktree: a new
   window (default), this window, or ask every time. Opening always keeps
   to that choice: the plugin opens projects with explicit options rather
@@ -131,11 +133,22 @@ scripts:
     pipeline: [plugin-build, plugin-install]
 ```
 
-`workforest` itself must be installed too (see the project README).
+`workforest` itself need not be installed: a published plugin zip carries
+a self-contained CLI for Linux and macOS, x64 and arm64, and uses it when
+it finds no installed one. Installing it (see the project README) is still
+what gets you `wf` in your shell, the man pages, and `wf open`'s `cd` — and
+an installed one is always preferred. A plugin you built yourself has no
+`bin/` unless you filled it:
+
+```sh
+../../packaging/binary/build.sh bin/linux-x64    # <os>-<arch> of this machine
+./gradlew buildPlugin
+```
 
 ## Troubleshooting
 
-- *workforest not found* — install it, or set **Executable** (above). The
+- *workforest not found* — this plugin build ships no CLI for your platform
+  and none is installed: install it, or set **Executable** (above). The
   tool window shows a *Configure…* link in that state.
 - *unrecognized arguments: --json* or *cannot prompt … not a terminal* —
   a `workforest` older than the plugin expects (it needs `list --json`).
@@ -173,8 +186,10 @@ found`), so for those, run the plugin.
   the last stderr line as the error message, and shell quoting. Pure and
   unit-tested (`ProtocolTest.kt`); JSON via the platform's bundled Gson.
 - `WorkforestCli.kt` — the only place a process is spawned: finds the
-  executable and runs it with `NO_COLOR` and no terminal. The plugin never
-  runs git itself.
+  executable — the setting, `PATH`, the usual install directories, then the
+  bundled `bin/<os>-<arch>/workforest` (`Bundled.kt` names it, unit-tested
+  in `BundledTest.kt`) — and runs it with `NO_COLOR` and no terminal. The
+  plugin never runs git itself.
 - `Actions.kt` — every action; a tree selection (`WORKTREE_KEY` /
   `SCRIPT_KEY`) is the target from the tree's context menus and inline
   buttons (`TREE_PLACE`), never from the toolbar (`TOOLBAR_PLACE`), which

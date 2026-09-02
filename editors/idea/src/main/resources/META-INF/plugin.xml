@@ -25,12 +25,14 @@
           (most recently opened first, uncommitted changes marked) — with tooltips, inline buttons, and context
           menus — plus the current worktree on the status bar.</li>
     </ul>
-    Requires the <code>workforest</code> CLI (<code>uv tool install workforest</code>, Homebrew, or the AUR);
-    set its path under Settings | Tools | Workforest when it is not on PATH.
+    The <code>workforest</code> CLI ships with the plugin (Linux and macOS, x64 and arm64), so nothing
+    else is needed. An installed copy — <code>uv tool install workforest</code>, Homebrew, or the AUR — is
+    preferred when there is one; set its path under Settings | Tools | Workforest when it is not on PATH.
     ]]></description>
 
     <change-notes><![CDATA[
     <ul>
+      <li>0.2.0: the workforest CLI ships with the plugin — no separate install needed.</li>
       <li>0.1.0: create, open, checkout, and delete worktrees; run scripts in the terminal; the Workforest tool window.</li>
     </ul>
     ]]></change-notes>

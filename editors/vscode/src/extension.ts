@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode';
 
-import { Cli } from './cli';
+import { Cli, bundledExecutable } from './cli';
 import * as commands from './commands';
 import { ForestModel } from './model';
 import { Recency } from './recency';
@@ -16,8 +16,9 @@ export interface Api {
 export function activate(context: vscode.ExtensionContext): Api {
   const log = vscode.window.createOutputChannel('Workforest');
   const cli = new Cli(
-    () => vscode.workspace.getConfiguration('workforest').get<string>('executable', 'workforest'),
+    () => vscode.workspace.getConfiguration('workforest').get<string>('executable', ''),
     (line) => log.appendLine(line),
+    bundledExecutable(context.extensionPath),
   );
   const model = new ForestModel(cli, log, new Recency(context.globalState));
   const view = vscode.window.createTreeView('workforest.forest', { treeDataProvider: new ForestTree(model) });
