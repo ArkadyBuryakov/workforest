@@ -1,0 +1,10 @@
+# Only the compiled extension, its manifest, and the docs ship in the .vsix.
+.vscode/**
+src/**
+out/test/**
+out/smoke/**
+scripts/**
+out/**/*.map
+node_modules/**
+tsconfig.json
+*.vsix

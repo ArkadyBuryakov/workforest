@@ -24,5 +24,10 @@ packaging/AUR/PKGBUILD
 packaging/AUR/.SRCINFO
 packaging/homebrew/workforest.rb
 
+# VS Code extension (editors/vscode)
+node_modules/
+editors/vscode/out/
+*.vsix
+
 # Tooling config
 /.workforest.yaml

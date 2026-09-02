@@ -1,0 +1,9 @@
+<!-- Source of media/icon.png, the Marketplace icon (which must be a PNG):
+     the project logo in its dark-theme ink on its light-theme ink, so it
+     reads on both Marketplace themes. Regenerate with `npm run icon`. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#1f2328"/>
+  <svg x="24" y="24" width="80" height="80" viewBox="26.677 49.555 48.277 47.922">
+    <path fill="#e6edf3" d="m 40.35,71.984 -10.673,17.25 14.26,0.002 -0.874,5.241 8.619,-0.001 -1.192,-5.47 6.692,0.001 -0.611,3.667 h 6.015 l -0.612,-3.667 9.98,-0.002 -7.47,-12.071 2.501,-0.041 -7.398,-13.555 -7.416,13.555 2.501,0.041 L 47.831,87.978 53.253156,77.719406 50.83,77.658 55.434,68.012 47.373,52.555 36.776,71.926 Z"/>
+  </svg>
+</svg>

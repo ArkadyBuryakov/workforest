@@ -13,6 +13,13 @@
 - `integrations/claude.py` is experimental: it reads Claude Code's private
   on-disk state. Session lines are rewritten by JSON parsing, never by
   string substitution.
+- `editors/vscode/` (the VS Code extension) is a thin client: it only ever
+  spawns `workforest` — never git — and reads its machine output
+  (`list --json`, `config --json`, `--complete` lines). Terminal prompts are
+  replaced by VS Code dialogs plus `--force`/`--keep-branch`/`--delete-branch`.
+  Parsing lives in `forest.ts`, which never imports `vscode` and is
+  unit-tested with `node:test`; `cli.ts` is the only module that spawns.
+  Verify with `npm run check` there (compile, tests, `vsce package`).
 - README.md is the project reference; there is no separate design document.
   The man pages under `man/` (`workforest.1`, `workforest.5`) are its
   installed counterpart: any change to commands, options, config keys,
