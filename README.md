@@ -377,8 +377,45 @@ Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
 checkout, in the same `name`/`branch`/`path`/`dirty` shape as each entry of
-`worktrees`) and the resolved `worktrees_dir` — for editor integrations
-and other programs.
+`worktrees`) and the resolved `worktrees_dir` — and is what the editor
+extensions read.
+
+## JetBrains IDE plugin
+
+`editors/idea/` holds a plugin for IntelliJ IDEA, PyCharm, WebStorm, and
+the other IntelliJ-based IDEs (2025.2 or later) that puts the forest in the
+IDE: a **Workforest** tool window with the project's scripts and the
+main checkout plus the worktrees (most recently opened first, dirty
+markers, the one this window is in), with tooltips, inline buttons, and
+context menus; commands to create, open, delete, and checkout worktrees,
+run and stop `scripts` in the IDE terminal, open a terminal in a worktree,
+show the merged configuration, and scaffold the project or the
+`.idea/.workforest.yaml` local config; plus a status bar widget. It is a
+thin client: every action runs the `workforest` command (`list --json`,
+`config --json`, `--complete` lines, and the plain subcommands with
+`--force` / `--keep-branch` / `--delete-branch` in place of terminal
+prompts, which become IDE dialogs), so the IDE and your shell always
+agree. Deleting or checking out the worktree open in the current window
+opens the main checkout in its place — the IDE's version of `wf`'s `cd`
+back.
+
+It needs `workforest` installed (see above; found on `PATH`, then in
+`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` — *Settings | Tools |
+Workforest* points at it otherwise). Build and install it from a checkout
+until it is on the Marketplace (any JDK runs Gradle, even the IDE's bundled
+one; the JDK 21 it compiles with is fetched automatically):
+
+```sh
+cd editors/idea
+./gradlew buildPlugin      # compile, unit tests → build/distributions/workforest-idea-*.zip
+```
+
+then *Settings | Plugins | ⚙ | Install Plugin from Disk* — or unzip it into
+the IDE's plugins directory, which is all that dialog does; the plugin's
+README has that as `wf run` scripts. `./gradlew runIde` starts a sandboxed
+IDE with the plugin for development.
+`editors/idea/README.md` is the plugin's own reference (features, settings,
+the `.idea/` carry-over recipe, troubleshooting).
 
 ## VS Code extension
 

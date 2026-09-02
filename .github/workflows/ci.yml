@@ -80,3 +80,28 @@ jobs:
         with:
           name: workforest-vscode
           path: editors/vscode/*.vsix
+
+  plugin-idea:
+    # The JetBrains plugin under editors/idea: compile, unit tests, and
+    # the plugin zip. verifyPlugin (downloads IDEs) is run by hand.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/idea
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile, test, package
+        run: ./gradlew --no-daemon build buildPlugin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforest-idea
+          path: editors/idea/build/distributions/*.zip

@@ -1,0 +1,18 @@
+<idea-plugin>
+    <actions>
+        <action id="Workforest.RunScript" class="pro.buryakov.workforest.idea.terminal.RunScriptAction"
+                text="Run Script…" description="wf run NAME in a new terminal tab of the chosen worktree"
+                icon="AllIcons.Actions.Execute">
+            <add-to-group group-id="Workforest.Menu" anchor="before" relative-to-action="Workforest.StopScript"/>
+            <add-to-group group-id="Workforest.ToolWindowToolbar" anchor="after" relative-to-action="Workforest.Open"/>
+            <add-to-group group-id="Workforest.WorktreeMenu" anchor="before" relative-to-action="Workforest.StopScript"/>
+            <add-to-group group-id="Workforest.ScriptMenu" anchor="first"/>
+        </action>
+        <action id="Workforest.OpenTerminal" class="pro.buryakov.workforest.idea.terminal.OpenTerminalAction"
+                text="Open in Terminal" description="A terminal tab in the worktree's directory"
+                icon="AllIcons.Nodes.Console">
+            <add-to-group group-id="Workforest.Menu" anchor="after" relative-to-action="Workforest.Open"/>
+            <add-to-group group-id="Workforest.WorktreeMenu" anchor="after" relative-to-action="Workforest.OpenInThisWindow"/>
+        </action>
+    </actions>
+</idea-plugin>
