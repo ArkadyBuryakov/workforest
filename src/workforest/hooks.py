@@ -793,6 +793,12 @@ def stop_script(
     _stop_jobs(config, name, running, by=f"`wf stop` in {cwd.name!r}", env=env)
 
 
+def running_scripts(cwd: Path) -> dict[Path, list[str]]:
+    """Which scripts of this project are running, by worktree path — the
+    records of every worktree, since they share the common git dir."""
+    return jobs.running_scripts(gitutil.git_common_dir(cwd))
+
+
 def _start_message(job: _Job) -> str:
     what = job.snippet if job.spec.command is not None else ", ".join(job.spec.members)
     return f"running {job.name!r} in {job.cwd}: {what}"

@@ -32,7 +32,8 @@
 
     <change-notes><![CDATA[
     <ul>
-      <li>0.2.0: the workforest CLI ships with the plugin — no separate install needed.</li>
+      <li>0.2.0: the workforest CLI ships with the plugin — no separate install needed; a running badge on the
+        scripts; Delete and Checkout act on this window's worktree.</li>
       <li>0.1.0: create, open, checkout, and delete worktrees; run scripts in the terminal; the Workforest tool window.</li>
     </ul>
     ]]></change-notes>

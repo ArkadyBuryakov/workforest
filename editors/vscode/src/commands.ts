@@ -109,6 +109,29 @@ async function pickEntries(
   return picked ? [picked.entry] : undefined;
 }
 
+/**
+ * The worktree this window is in, when it is a managed one: what the
+ * header's Delete and Checkout act on, without asking which.
+ */
+function currentWorktree(deps: Deps): EntryNode | undefined {
+  const located = deps.model.primary;
+  if (!located || located.isMain) {
+    return undefined;
+  }
+  return new EntryNode(located.forest, located.info, false, true);
+}
+
+/** Acting on this window's worktree was nobody's explicit pick: confirm it. */
+async function confirmCurrent(question: string, detail: string, verb: string): Promise<boolean> {
+  const choice = await vscode.window.showWarningMessage(question, { modal: true, detail }, verb);
+  return choice !== undefined;
+}
+
+/** How to name a worktree's branch in a sentence. */
+function onBranch(info: WorktreeInfo): string {
+  return info.branch === null ? 'a detached HEAD' : `branch ${info.branch}`;
+}
+
 /** The entry a command was invoked on (tree item), else a picker. */
 async function entryFrom(
   deps: Deps,
@@ -286,7 +309,7 @@ export async function copyPath(deps: Deps, node?: Node): Promise<void> {
 
 /** The CLI's dirty-worktree confirmation, as a modal; refreshes first so
  * the `dirty` flags are current. */
-async function confirmDirty(deps: Deps, entries: EntryNode[], question: string): Promise<EntryNode[] | undefined> {
+async function confirmDirty(deps: Deps, entries: EntryNode[], verb: string): Promise<EntryNode[] | undefined> {
   await deps.model.refresh();
   const fresh = entries.map((entry) => {
     const forest = deps.model.all.find((f) => f.main.path === entry.forest.main.path) ?? entry.forest;
@@ -297,10 +320,11 @@ async function confirmDirty(deps: Deps, entries: EntryNode[], question: string):
   const dirty = alive.filter((entry) => entry.info.dirty);
   if (dirty.length > 0) {
     const names = dirty.map((entry) => entry.info.name).join(', ');
+    const one = dirty.length === 1;
     const choice = await vscode.window.showWarningMessage(
-      `${dirty.length === 1 ? 'Worktree' : 'Worktrees'} ${names} ${dirty.length === 1 ? 'has' : 'have'} uncommitted changes. ${question}`,
-      { modal: true },
-      question.replace(/\?$/, ''),
+      `${one ? 'Worktree' : 'Worktrees'} ${names} ${one ? 'has' : 'have'} uncommitted changes.`,
+      { modal: true, detail: `They are discarded with the ${one ? 'worktree' : 'worktrees'}.` },
+      `${verb} anyway`,
     );
     if (!choice) {
       return undefined;
@@ -321,8 +345,15 @@ async function leaveIfCurrent(deps: Deps, entries: EntryNode[]): Promise<void> {
 export async function remove(deps: Deps, node?: Node): Promise<void> {
   await guarded(deps, async () => {
     let entries: EntryNode[] | undefined;
+    const current = node === undefined ? currentWorktree(deps) : undefined;
     if (node instanceof EntryNode && !node.isMain) {
       entries = [node];
+    } else if (current) {
+      const detail = `This window's worktree, on ${onBranch(current.info)}.`;
+      if (!(await confirmCurrent(`Delete worktree ${current.info.name}?`, detail, 'Delete'))) {
+        return;
+      }
+      entries = [current];
     } else {
       entries = await pickEntries(deps, {
         placeHolder: 'Worktrees to delete',
@@ -334,19 +365,20 @@ export async function remove(deps: Deps, node?: Node): Promise<void> {
     if (!entries || entries.length === 0) {
       return;
     }
-    const confirmed = await confirmDirty(deps, entries, 'Delete anyway?');
+    const confirmed = await confirmDirty(deps, entries, 'Delete');
     if (!confirmed || confirmed.length === 0) {
       return;
     }
     const branches = confirmed.map((entry) => entry.info.branch).filter((b): b is string => b !== null);
     let branchFlag = '--keep-branch';
     if (branches.length > 0) {
+      const one = branches.length === 1;
       const choice = await vscode.window.showQuickPick(
         [
-          { label: '$(git-branch) Keep the branch', description: branches.join(', '), flag: '--keep-branch' },
-          { label: '$(trash) Delete the branch too', description: branches.join(', '), flag: '--delete-branch' },
+          { label: `$(git-branch) No, keep ${one ? 'it' : 'them'}`, flag: '--keep-branch' },
+          { label: `$(trash) Yes, delete ${one ? 'it' : 'them'}`, flag: '--delete-branch' },
         ],
-        { placeHolder: 'What about the branch?' },
+        { placeHolder: `Also delete ${one ? `branch ${branches[0]}` : `the branches ${branches.join(', ')}`}?` },
       );
       if (!choice) {
         return;
@@ -363,14 +395,24 @@ export async function remove(deps: Deps, node?: Node): Promise<void> {
 
 export async function checkout(deps: Deps, node?: Node): Promise<void> {
   await guarded(deps, async () => {
-    const entry = await entryFrom(deps, node, {
-      placeHolder: 'Worktree to fold back into the main checkout',
-      includeMain: false,
-    });
+    const current = node === undefined ? currentWorktree(deps) : undefined;
+    if (current) {
+      const question = `Check out ${current.info.branch ?? current.info.name} in the main checkout?`;
+      const detail = `Deletes ${current.info.name}, this window's worktree.`;
+      if (!(await confirmCurrent(question, detail, 'Check Out'))) {
+        return;
+      }
+    }
+    const entry =
+      current ??
+      (await entryFrom(deps, node, {
+        placeHolder: 'Worktree to check out in the main checkout',
+        includeMain: false,
+      }));
     if (!entry) {
       return;
     }
-    const confirmed = await confirmDirty(deps, [entry], 'Delete the worktree and check its branch out in main anyway?');
+    const confirmed = await confirmDirty(deps, [entry], 'Check out');
     const target = confirmed?.[0];
     if (!target) {
       return;
@@ -380,7 +422,7 @@ export async function checkout(deps: Deps, node?: Node): Promise<void> {
     await deps.model.refresh();
     if (!deps.model.isOpenHere(target.forest.main.path)) {
       const choice = await vscode.window.showInformationMessage(
-        `Workforest: ${target.info.branch ?? target.info.name} is now checked out in ${target.forest.main.path}.`,
+        `Workforest: ${target.info.branch ?? target.info.name} is now in the main checkout.`,
         'Open Main Checkout',
       );
       if (choice) {

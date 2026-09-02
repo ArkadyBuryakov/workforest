@@ -207,25 +207,31 @@ def _dirty_flags(worktrees: list[gitutil.Worktree]) -> list[bool]:
         return list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
 
 
-def _worktree_json(worktree: gitutil.Worktree, dirty: bool) -> dict[str, Any]:
+def _worktree_json(worktree: gitutil.Worktree, dirty: bool, running: list[str]) -> dict[str, Any]:
     return {
         "name": worktree.name,
         "branch": worktree.branch,  # null when detached
         "path": str(worktree.path),
         "dirty": dirty,
+        "running": running,  # scripts running there, by name
     }
 
 
 def _list_json(ctx: Context) -> str:
     """The whole forest for programs (editor integrations): the main
-    checkout in the same shape as the worktrees, plus where they live."""
+    checkout in the same shape as the worktrees, plus where they live and
+    what is running in each."""
     everything = gitutil.list_worktrees(ctx.main)
     main, worktrees = everything[0], [w for w in everything if _is_managed(ctx, w)]
     dirty = _dirty_flags([main, *worktrees])
+    running = hooks.running_scripts(ctx.main)
     data = {
-        "main": _worktree_json(main, dirty[0]),
+        "main": _worktree_json(main, dirty[0], running.get(main.path, [])),
         "worktrees_dir": str(ctx.worktrees_dir),
-        "worktrees": [_worktree_json(w, d) for w, d in zip(worktrees, dirty[1:], strict=True)],
+        "worktrees": [
+            _worktree_json(w, d, running.get(w.path, []))
+            for w, d in zip(worktrees, dirty[1:], strict=True)
+        ],
     }
     return json.dumps(data, indent=2)
 

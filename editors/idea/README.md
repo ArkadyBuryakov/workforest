@@ -15,7 +15,10 @@ collapsible sections:
   `bulk`, or a `pipeline` (each with its own icon), `background` /
   `exclusive` flagged, the command in the tooltip. ▶ runs one in this
   window's worktree (`workforest run NAME` in a new terminal tab), ■ stops
-  it; double-click runs. The section follows `.workforest.yaml` edits.
+  it; double-click runs. A running script wears a `●`: light blue when it
+  runs in this window's worktree, orange — with the count once there are
+  several — when it runs in others. The section follows
+  `.workforest.yaml` edits and the running scripts of every worktree.
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened in this IDE first (never-opened ones by creation
   time), each with its branch, a `●` when it has uncommitted changes, and
@@ -28,7 +31,9 @@ or this window, open in terminal, run / stop a script *in that worktree*,
 checkout, delete, copy path; scripts — run, stop, show the configuration;
 the section headers — create a worktree, show / initialize the
 configuration, refresh. The **header buttons** never act on the selection:
-each asks with a popup you can type into to filter.
+each asks with a popup you can type into to filter — except Delete and
+Checkout, which act on the worktree this window is in (after confirming
+it) and only ask when this window is the main checkout.
 
 **Actions** (also under *Tools | Workforest* and in *Find Action*):
 
@@ -36,8 +41,8 @@ each asks with a popup you can type into to filter.
 |---|---|
 | Create Worktree… | `workforest create BRANCH --no-open`, then opens the worktree. The branch field completes the branches not yet checked out (local and remote, like the CLI's completion); a name that matches none creates a new branch. |
 | Open Worktree… | opens the main checkout or a worktree in a new window, this window, or asks — see the *Open worktrees in* setting. |
-| Delete Worktree… | `workforest delete NAME --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Deleting the worktree this window shows replaces the window with the main checkout. |
-| Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout; offers to open it when no window shows it. |
+| Delete Worktree… | `workforest delete NAME --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Without a selected row it targets the worktree this window is in. Deleting the worktree this window shows replaces the window with the main checkout. |
+| Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout — this window's, without a selected row; offers to open it when no window shows it. |
 | Run Script… | `workforest run NAME` in a new terminal tab in the chosen worktree (this window's by default; from a worktree's context menu, that worktree), so Ctrl-C, colors, and background scripts behave exactly as in your shell. Needs the bundled Terminal plugin. |
 | Stop Script… | `workforest stop NAME` in the chosen worktree. |
 | Open in Terminal | a terminal tab in the worktree's directory. |

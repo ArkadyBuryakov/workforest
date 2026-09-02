@@ -10,17 +10,26 @@ import {
   parseCandidates,
   parseForest,
   parseScripts,
+  runningBadge,
+  runningLabel,
+  runningState,
   scriptDescription,
   shellQuote,
   worktreeNameFor,
 } from '../forest';
 
 const LIST_JSON = JSON.stringify({
-  main: { name: 'api', branch: 'main', path: '/home/u/dev/api', dirty: false },
+  main: { name: 'api', branch: 'main', path: '/home/u/dev/api', dirty: false, running: [] },
   worktrees_dir: '/home/u/dev/worktrees/api',
   worktrees: [
-    { name: 'one', branch: 'feature/one', path: '/home/u/dev/worktrees/api/one', dirty: true },
-    { name: 'two', branch: null, path: '/home/u/dev/worktrees/api/two', dirty: false },
+    {
+      name: 'one',
+      branch: 'feature/one',
+      path: '/home/u/dev/worktrees/api/one',
+      dirty: true,
+      running: ['dev', 'test'],
+    },
+    { name: 'two', branch: null, path: '/home/u/dev/worktrees/api/two', dirty: false, running: ['dev'] },
   ],
 });
 
@@ -43,6 +52,38 @@ test('parseForest rejects a foreign shape', () => {
     () => parseForest('{"main": {"name": 1}, "worktrees_dir": "x", "worktrees": []}'),
     /main: not a worktree entry/,
   );
+  assert.throws(
+    () =>
+      parseForest(
+        '{"main": {"name": "api", "branch": null, "path": "/a", "dirty": false}, "worktrees_dir": "x", "worktrees": []}',
+      ),
+    /main: not a worktree entry/, // an older CLI, without `running`
+  );
+});
+
+test('runningState splits this worktree from the others', () => {
+  const forest = parseForest(LIST_JSON);
+  const here = '/home/u/dev/worktrees/api/one';
+  assert.deepEqual(runningState(forest, 'dev', here), { here: true, others: 1 });
+  assert.deepEqual(runningState(forest, 'test', here), { here: true, others: 0 });
+  assert.deepEqual(runningState(forest, 'dev', '/home/u/dev/api'), { here: false, others: 2 });
+  assert.deepEqual(runningState(forest, 'lint', here), { here: false, others: 0 });
+});
+
+test('runningBadge is blue here, orange elsewhere, counted past one', () => {
+  assert.deepEqual(runningBadge({ here: true, others: 0 }), { text: '●', here: true });
+  assert.deepEqual(runningBadge({ here: true, others: 3 }), { text: '●', here: true });
+  assert.deepEqual(runningBadge({ here: false, others: 1 }), { text: '●', here: false });
+  assert.deepEqual(runningBadge({ here: false, others: 3 }), { text: '3', here: false });
+  assert.equal(runningBadge({ here: false, others: 0 }), undefined);
+});
+
+test('runningLabel says where in words', () => {
+  assert.equal(runningLabel({ here: true, others: 0 }), 'running here');
+  assert.equal(runningLabel({ here: true, others: 2 }), 'running here, 2 elsewhere');
+  assert.equal(runningLabel({ here: false, others: 1 }), 'running in another worktree');
+  assert.equal(runningLabel({ here: false, others: 3 }), 'running in 3 worktrees');
+  assert.equal(runningLabel({ here: false, others: 0 }), '');
 });
 
 test('locate finds main and worktrees by path', () => {

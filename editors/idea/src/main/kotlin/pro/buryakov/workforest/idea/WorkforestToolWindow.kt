@@ -61,6 +61,10 @@ enum class Section(val title: String, val empty: String, val menu: String) {
 /** An inline button on a row: an action, run with the row as its target. */
 class InlineButton(val actionId: String, val icon: Icon, val text: String)
 
+/** The running badge's colours: light blue in this worktree, orange in the others. */
+private val RUNNING_HERE = JBColor(0x3592C4, 0x548AF7)
+private val RUNNING_ELSEWHERE = JBColor.ORANGE
+
 private const val ICON = 16
 private const val GAP = 4
 private const val LEAD = 8
@@ -103,6 +107,7 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
     private val root = DefaultMutableTreeNode()
     private val model = DefaultTreeModel(root)
     private val here: Path? = project.basePath?.let { Path.of(it) }
+    private var worktrees: List<Worktree> = emptyList() // what the running badges are counted from
     private val tree: Tree = object : Tree(model) {
         override fun getToolTipText(event: MouseEvent): String? {
             buttonAt(event.point)?.let { return it.second.text }
@@ -250,12 +255,17 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         is ScriptInfo -> buildString {
             append("<html><b>").append(node.name).append("</b><br><code>").append(node.detail).append("</code>")
             if (node.flags.isNotEmpty()) append("<br>").append(node.flags)
+            runningOf(node).label.takeIf { it.isNotEmpty() }?.let { append("<br>").append(it) }
             append("</html>")
         }
         else -> null
     }
 
+    /** Where [script] is running: this window's worktree, and how many others. */
+    private fun runningOf(script: ScriptInfo): RunningState = RunningState.of(worktrees, script.name, here)
+
     private fun show(view: ForestView) {
+        worktrees = view.worktrees
         val collapsed = Section.entries.filter { section -> sectionPath(section)?.let { !tree.isExpanded(it) } == true }
         val selected = selectedObject()
         root.removeAllChildren()
@@ -336,10 +346,18 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
                     icon = scriptIcon(userObject)
                     append(userObject.name)
                     if (userObject.flags.isNotEmpty()) append("  ${userObject.flags}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    renderRunning(runningOf(userObject))
                 }
                 is String -> append(userObject, SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 else -> {}
             }
+        }
+
+        /** The running badge: light blue for this worktree, orange for the others. */
+        private fun renderRunning(state: RunningState) {
+            val badge = state.badge ?: return
+            val color = if (state.here) RUNNING_HERE else RUNNING_ELSEWHERE
+            append("  $badge", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, color))
         }
 
         private fun renderWorktree(worktree: Worktree) {

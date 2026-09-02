@@ -108,6 +108,27 @@ class TestRecords:
     def test_boot_id_is_stable(self) -> None:
         assert jobs.boot_id() == jobs.boot_id()
 
+    def test_running_scripts_groups_live_records_by_worktree(
+        self, tmp_path: Path, sleeper: Callable[[str], subprocess.Popen[bytes]]
+    ) -> None:
+        assert jobs.running_scripts(tmp_path) == {}
+        live = sleeper("sleep 30").pid
+        for script, worktree in (("dev", "/w/feat"), ("build", "/w/feat"), ("dev", "/w/other")):
+            jobs.write_record(
+                jobs.record_path(tmp_path, script, Path(worktree)),
+                make_record(live, script=script, worktree=worktree),
+            )
+        # A dead group: a record nobody cleaned up, which counts for nothing.
+        jobs.write_record(
+            jobs.record_path(tmp_path, "stale", Path("/w/feat")),
+            make_record(_reaped_pid(), script="stale", worktree="/w/feat"),
+        )
+        (tmp_path / jobs.RUNNING_SUBDIR / "not-a-dir").write_text("")
+        assert jobs.running_scripts(tmp_path) == {
+            Path("/w/feat"): ["build", "dev"],
+            Path("/w/other"): ["dev"],
+        }
+
 
 class TestClassify:
     def test_live(self, sleeper: Callable[[str], subprocess.Popen[bytes]]) -> None:

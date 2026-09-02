@@ -15,6 +15,8 @@ data class Worktree(
     val path: Path,
     val dirty: Boolean,
     val isMain: Boolean = false,
+    /** The scripts running there, by name. */
+    val running: List<String> = emptyList(),
 )
 
 /** `list --json`: the whole forest. */
@@ -56,6 +58,7 @@ object Protocol {
         branch = entry.get("branch")?.takeUnless { it.isJsonNull }?.asString,
         path = Path.of(entry.get("path").asString),
         dirty = entry.get("dirty").asBoolean,
+        running = entry.getAsJsonArray("running").map { it.asString },
     )
 
     /** The `scripts` of `config --json` (`{"config": {"scripts": {...}}, "sources": [...]}`), by name. */

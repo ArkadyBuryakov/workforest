@@ -380,18 +380,21 @@ Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config erro
 Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
-checkout, in the same `name`/`branch`/`path`/`dirty` shape as each entry of
-`worktrees`) and the resolved `worktrees_dir` — and is what the editor
-extensions read.
+checkout, in the same `name`/`branch`/`path`/`dirty`/`running` shape as each
+entry of `worktrees`, `running` being the names of the scripts running
+there) and the resolved `worktrees_dir` — and is what the editor extensions
+read.
 
 ## JetBrains IDE plugin
 
 `editors/idea/` holds a plugin for IntelliJ IDEA, PyCharm, WebStorm, and
 the other IntelliJ-based IDEs (2025.2 or later) that puts the forest in the
-IDE: a **Workforest** tool window with the project's scripts and the
-main checkout plus the worktrees (most recently opened first, dirty
-markers, the one this window is in), with tooltips, inline buttons, and
-context menus; commands to create, open, delete, and checkout worktrees,
+IDE: a **Workforest** tool window with the project's scripts (badged
+where they are running) and the main checkout plus the worktrees (most
+recently opened first, dirty markers, the one this window is in), with
+tooltips, inline buttons, and context menus; commands to create, open,
+delete, and checkout worktrees (the last two on this window's worktree
+when nothing is selected),
 run and stop `scripts` in the IDE terminal, open a terminal in a worktree,
 show the merged configuration, and scaffold the project or the
 `.idea/.workforest.yaml` local config; plus a status bar widget. It is a
@@ -424,9 +427,10 @@ the `.idea/` carry-over recipe, troubleshooting).
 `editors/vscode/` holds a VS Code extension that puts the forest in the
 editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
 its header and two collapsible sections, Scripts (run/stop with one
-click) and Worktrees (main checkout, then managed worktrees by recency,
-dirty markers, the worktree this window is in), commands to
-create, open, delete, and checkout worktrees, run and stop `scripts` in
+click, badged where they are running) and Worktrees (main checkout, then
+managed worktrees by recency, dirty markers, the worktree this window is
+in), commands to create, open, delete, and checkout worktrees (the last
+two on this window's worktree when invoked on no row), run and stop `scripts` in
 the integrated terminal, show the merged configuration, and scaffold the
 project or the `.vscode/.workforest.yaml` local config, plus a status bar
 item. It is a thin client: every action runs the `workforest` command

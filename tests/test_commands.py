@@ -260,6 +260,7 @@ class TestList:
             "branch": "main",
             "path": str(repo.path),
             "dirty": True,
+            "running": [],
         }
         assert data["worktrees_dir"] == str(ctx.worktrees_dir)
         assert data["worktrees"] == [
@@ -268,8 +269,43 @@ class TestList:
                 "branch": "feature/one",
                 "path": str(ctx.worktrees_dir / "one"),
                 "dirty": False,
+                "running": [],
             }
         ]
+
+    def test_json_reports_running_scripts(self, repo: Repo) -> None:
+        import json
+        import os
+        import signal
+        import subprocess
+        import time
+
+        from workforest import jobs
+
+        ctx = ctx_for(repo)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        common = gitutil.git_common_dir(repo.path)
+        # A live process group of its own, exactly what `wf run` records.
+        process = subprocess.Popen(["sleep", "30"], process_group=0)
+        try:
+            jobs.write_record(
+                jobs.record_path(common, "dev", ctx.worktrees_dir / "feat"),
+                jobs.JobRecord(
+                    script="dev",
+                    worktree=str(ctx.worktrees_dir / "feat"),
+                    branch="feat",
+                    pgid=process.pid,
+                    owner_pid=os.getpid(),
+                    boot_id=jobs.boot_id(),
+                    started_at=time.time(),
+                ),
+            )
+            data = json.loads(commands.cmd_list(ctx, as_json=True) or "")
+        finally:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+        assert data["main"]["running"] == []
+        assert data["worktrees"][0]["running"] == ["dev"]
 
     def test_json_of_empty_forest_still_describes_main(self, repo: Repo) -> None:
         import json
