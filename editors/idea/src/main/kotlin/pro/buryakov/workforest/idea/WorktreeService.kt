@@ -138,12 +138,14 @@ class WorktreeService(private val project: Project) : Disposable {
 
         /**
          * Worktree bookkeeping (not `index`, rewritten by every `git status` —
-         * our own listing included) and the config files.
+         * our own listing included), the running-script records, and the
+         * config files.
          */
         fun isBookkeeping(path: String): Boolean {
             val name = path.substringAfterLast('/')
             if (name == ".workforest.yaml" || name == ".workforest.yml" || name == ".workforest.json") return true
             if (path.endsWith("/.git/HEAD")) return true
+            if (path.contains("/.git/workforest/running/")) return true
             val rest = path.substringAfter("/.git/worktrees/", "")
             if (rest.isEmpty()) return false
             val parts = rest.split('/')

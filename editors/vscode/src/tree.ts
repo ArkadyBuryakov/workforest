@@ -8,7 +8,15 @@
 
 import * as vscode from 'vscode';
 
-import { Forest, ScriptInfo, WorktreeInfo, scriptDescription } from './forest';
+import {
+  Forest,
+  ScriptInfo,
+  WorktreeInfo,
+  runningBadge,
+  runningLabel,
+  runningState,
+  scriptDescription,
+} from './forest';
 import { ForestModel } from './model';
 
 export type Section = 'scripts' | 'worktrees';
@@ -50,6 +58,54 @@ export class ScriptNode {
 }
 
 export type Node = SectionNode | SpacerNode | PlaceholderNode | ForestNode | EntryNode | ScriptNode;
+
+/** The uri a script row carries so decorations (the running badge) can be
+ * attached to it: `workforest-script:/NAME?MAIN-CHECKOUT-PATH`. */
+const SCRIPT_SCHEME = 'workforest-script';
+
+function scriptUri(forest: Forest, script: ScriptInfo): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCRIPT_SCHEME, path: `/${script.name}`, query: forest.main.path });
+}
+
+/**
+ * The badge on a script row: light blue while it runs in the worktree this
+ * window is in, orange — with the count of worktrees when there are
+ * several — while it runs only elsewhere.
+ */
+export class ScriptDecorations implements vscode.FileDecorationProvider, vscode.Disposable {
+  private readonly emitter = new vscode.EventEmitter<undefined>();
+  readonly onDidChangeFileDecorations = this.emitter.event;
+  private readonly subscription: vscode.Disposable;
+
+  constructor(private readonly model: ForestModel) {
+    this.subscription = model.onDidChange(() => this.emitter.fire(undefined));
+  }
+
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    if (uri.scheme !== SCRIPT_SCHEME) {
+      return undefined;
+    }
+    const forest = this.model.all.find((candidate) => candidate.main.path === uri.query);
+    if (!forest) {
+      return undefined;
+    }
+    const state = runningState(forest, uri.path.slice(1), this.model.primary?.info.path);
+    const badge = runningBadge(state);
+    if (!badge) {
+      return undefined;
+    }
+    return {
+      badge: badge.text,
+      color: new vscode.ThemeColor(badge.here ? 'charts.blue' : 'charts.orange'),
+      tooltip: runningLabel(state),
+    };
+  }
+
+  dispose(): void {
+    this.subscription.dispose();
+    this.emitter.dispose();
+  }
+}
 
 export class ForestTree implements vscode.TreeDataProvider<Node> {
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
@@ -118,7 +174,7 @@ export class ForestTree implements vscode.TreeDataProvider<Node> {
       return item;
     }
     if (node instanceof ScriptNode) {
-      return scriptItem(node);
+      return scriptItem(node, this.model.primary?.info.path);
     }
     if (node instanceof ForestNode) {
       const item = new vscode.TreeItem(node.forest.main.name, vscode.TreeItemCollapsibleState.Expanded);
@@ -167,14 +223,16 @@ const SCRIPT_ICONS: Record<ScriptInfo['kind'], string> = {
   pipeline: 'list-ordered',
 };
 
-function scriptItem(node: ScriptNode): vscode.TreeItem {
+function scriptItem(node: ScriptNode, herePath: string | undefined): vscode.TreeItem {
   const { script } = node;
   const item = new vscode.TreeItem(script.name, vscode.TreeItemCollapsibleState.None);
+  const running = runningLabel(runningState(node.forest, script.name, herePath));
   item.description = scriptDescription(script);
   item.iconPath = new vscode.ThemeIcon(SCRIPT_ICONS[script.kind]);
   item.contextValue = 'script';
+  item.resourceUri = scriptUri(node.forest, script); // carries the running badge
   item.tooltip = new vscode.MarkdownString(
-    [`**${script.name}**`, `\`\`\`sh\n${script.detail}\n\`\`\``, script.background ? 'background' : '', script.exclusive ? 'exclusive' : '']
+    [`**${script.name}**`, `\`\`\`sh\n${script.detail}\n\`\`\``, script.background ? 'background' : '', script.exclusive ? 'exclusive' : '', running]
       .filter((part) => part.length > 0)
       .join('  \n'),
   );

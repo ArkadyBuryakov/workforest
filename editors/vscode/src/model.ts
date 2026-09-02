@@ -204,7 +204,8 @@ export class ForestModel implements vscode.Disposable {
    * appears and disappears with the worktree, its HEAD moves with the
    * branch; `.git/HEAD` moves with `wf checkout`. Index rewrites in there
    * (every `git status`) are ignored, or our own refresh would loop.
-   * The project configuration files feed the Scripts view.
+   * The project configuration files feed the Scripts view, and
+   * `.git/workforest/running/` the running badges.
    */
   private watch(): void {
     for (const watcher of this.watchers) {
@@ -229,6 +230,11 @@ export class ForestModel implements vscode.Disposable {
       const head = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(vscode.Uri.file(gitDir), 'HEAD'),
       );
+      // One record file per running script, in every worktree of the project.
+      const running = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(path.join(gitDir, 'workforest', 'running')), '**'),
+      );
+      const refreshRunning = (): void => this.scheduleRefresh();
       this.watchers.push(
         worktrees,
         worktrees.onDidCreate(onEvent),
@@ -236,6 +242,10 @@ export class ForestModel implements vscode.Disposable {
         worktrees.onDidChange(onEvent),
         head,
         head.onDidChange(() => this.scheduleRefresh()),
+        running,
+        running.onDidCreate(refreshRunning),
+        running.onDidDelete(refreshRunning),
+        running.onDidChange(refreshRunning),
       );
       for (const dir of ['', '.vscode', '.idea']) {
         const config = vscode.workspace.createFileSystemWatcher(

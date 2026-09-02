@@ -129,8 +129,13 @@ class CopyPathAction : WorktreeItemAction() {
 class DeleteWorktreeAction : ManagedWorktreeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        chooseWorktree(e, "Delete Worktree") { worktree ->
-            if (!confirmDirty(project, worktree, "Delete it anyway?", "Delete Worktree", "Delete")) return@chooseWorktree
+        chooseWorktreeOrCurrent(
+            e,
+            "Delete Worktree",
+            confirm = { "Delete worktree '${it.name}'?\nThis window's worktree, on ${branchPhrase(it)}." },
+            okText = "Delete",
+        ) { worktree ->
+            if (!confirmDirty(project, worktree, "Delete Worktree", "Delete")) return@chooseWorktreeOrCurrent
             val branchFlag = when (val branch = worktree.branch) {
                 null -> "--keep-branch"
                 else -> when (
@@ -146,7 +151,7 @@ class DeleteWorktreeAction : ManagedWorktreeAction() {
                 ) {
                     Messages.YES -> "--delete-branch"
                     Messages.NO -> "--keep-branch"
-                    else -> return@chooseWorktree
+                    else -> return@chooseWorktreeOrCurrent
                 }
             }
             removeWorktree(
@@ -163,15 +168,22 @@ class DeleteWorktreeAction : ManagedWorktreeAction() {
 class CheckoutWorktreeAction : ManagedWorktreeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        chooseWorktree(e, "Checkout into Main Checkout") { worktree ->
-            val question = "Delete the worktree and check out its branch in the main checkout anyway?"
-            if (!confirmDirty(project, worktree, question, "Checkout Worktree", "Checkout")) return@chooseWorktree
+        chooseWorktreeOrCurrent(
+            e,
+            "Checkout into Main Checkout",
+            confirm = {
+                "Check out '${it.branch ?: it.name}' in the main checkout?" +
+                    "\nDeletes '${it.name}', this window's worktree."
+            },
+            okText = "Check Out",
+        ) { worktree ->
+            if (!confirmDirty(project, worktree, "Checkout Worktree", "Check out")) return@chooseWorktreeOrCurrent
             removeWorktree(
                 project,
                 worktree,
                 title = "Checking out ${worktree.branch ?: worktree.name}",
                 args = listOf("checkout", worktree.name, "--force"),
-                message = "Checked out '${worktree.branch}' in the main checkout",
+                message = "'${worktree.branch ?: worktree.name}' is now in the main checkout",
                 offerMain = true,
             )
         }
@@ -273,6 +285,10 @@ fun <T> choosePopup(title: String, items: List<T>, text: (T) -> String, icon: (T
         },
     )
 
+/** How to name a worktree's branch in a sentence. */
+fun branchPhrase(worktree: Worktree): String =
+    worktree.branch?.let { "branch '$it'" } ?: "a detached HEAD"
+
 fun worktreeLabel(worktree: Worktree): String {
     val branch = worktree.branch ?: "(detached)"
     val role = if (worktree.isMain) "main checkout · " else ""
@@ -313,6 +329,36 @@ fun chooseWorktree(e: AnActionEvent, title: String, includeMain: Boolean = false
     choosePopup(title, worktrees, ::worktreeLabel, ::worktreeIcon, onChosen).showInBestPositionFor(e.dataContext)
 }
 
+/**
+ * The target for Delete and Checkout: the row they were invoked on, else —
+ * from the toolbar or the Tools menu — the worktree this window is in,
+ * once [confirm] is answered; from the main checkout, where there is no
+ * such worktree, the chooser as usual.
+ */
+fun chooseWorktreeOrCurrent(
+    e: AnActionEvent,
+    title: String,
+    confirm: (Worktree) -> String,
+    okText: String,
+    onChosen: (Worktree) -> Unit,
+) {
+    val project = e.project ?: return
+    val current = if (e.targetWorktree() != null) null else WorktreeService.getInstance(project).current
+    if (current == null || current.isMain) {
+        chooseWorktree(e, title, onChosen = onChosen)
+        return
+    }
+    val answer = Messages.showYesNoDialog(
+        project,
+        confirm(current),
+        title,
+        okText,
+        "Cancel",
+        Messages.getWarningIcon(),
+    )
+    if (answer == Messages.YES) onChosen(current)
+}
+
 /** Where a script runs: the targeted worktree, else this window's directory. */
 fun AnActionEvent.scriptCwd(): Path? = targetWorktree()?.path ?: project?.let { WorktreeService.getInstance(it).root }
 
@@ -335,13 +381,13 @@ fun chooseScript(e: AnActionEvent, title: String, onChosen: (ScriptInfo) -> Unit
 }
 
 /** The CLI's uncommitted-changes guard, as a dialog; true when it is fine to go on. */
-private fun confirmDirty(project: Project, worktree: Worktree, question: String, title: String, okText: String): Boolean {
+private fun confirmDirty(project: Project, worktree: Worktree, title: String, verb: String): Boolean {
     if (!worktree.dirty) return true
     val answer = Messages.showYesNoDialog(
         project,
-        "Worktree '${worktree.name}' has uncommitted changes.\n$question",
+        "Worktree '${worktree.name}' has uncommitted changes.\nThey are discarded with the worktree.",
         title,
-        okText,
+        "$verb anyway",
         "Cancel",
         Messages.getWarningIcon(),
     )

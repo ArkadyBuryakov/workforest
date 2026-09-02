@@ -8,11 +8,12 @@ import java.nio.file.Path
 class ProtocolTest {
     private val forestJson = """
         {
-          "main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false},
+          "main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": []},
           "worktrees_dir": "/dev/worktrees/api",
           "worktrees": [
-            {"name": "feat", "branch": "feature/feat", "path": "/dev/worktrees/api/feat", "dirty": true},
-            {"name": "fix", "branch": null, "path": "/dev/worktrees/api/fix", "dirty": false}
+            {"name": "feat", "branch": "feature/feat", "path": "/dev/worktrees/api/feat", "dirty": true,
+             "running": ["dev", "test"]},
+            {"name": "fix", "branch": null, "path": "/dev/worktrees/api/fix", "dirty": false, "running": ["dev"]}
           ]
         }
     """.trimIndent()
@@ -24,8 +25,11 @@ class ProtocolTest {
         assertEquals(Path.of("/dev/worktrees/api"), forest.worktreesDir)
         assertEquals(
             listOf(
-                Worktree("feat", "feature/feat", Path.of("/dev/worktrees/api/feat"), dirty = true),
-                Worktree("fix", null, Path.of("/dev/worktrees/api/fix"), dirty = false),
+                Worktree(
+                    "feat", "feature/feat", Path.of("/dev/worktrees/api/feat"), dirty = true,
+                    running = listOf("dev", "test"),
+                ),
+                Worktree("fix", null, Path.of("/dev/worktrees/api/fix"), dirty = false, running = listOf("dev")),
             ),
             forest.worktrees,
         )
@@ -33,14 +37,16 @@ class ProtocolTest {
 
     @Test
     fun emptyForestHasNoWorktrees() {
-        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false},
+        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": []},
             "worktrees_dir": "/dev/worktrees/api", "worktrees": []}"""
         assertEquals(emptyList<Worktree>(), Protocol.parseForest(json).worktrees)
     }
 
     @Test
     fun rejectsUnexpectedOutput() {
-        for (bad in listOf("", "not json", "[]", """{"worktrees": []}""", """{"main": {"name": "x"}}""")) {
+        val noRunning = """{"main": {"name": "api", "branch": null, "path": "/dev/api", "dirty": false},
+            "worktrees_dir": "/dev", "worktrees": []}""" // an older CLI
+        for (bad in listOf("", "not json", "[]", """{"worktrees": []}""", """{"main": {"name": "x"}}""", noRunning)) {
             val error = assertThrows(WorkforestException::class.java) { Protocol.parseForest(bad) }
             assertEquals(true, error.message!!.startsWith("unexpected `list --json` output"))
         }
@@ -92,6 +98,7 @@ class ProtocolTest {
         assertEquals(false, WorktreeService.isBookkeeping("/r/.git/worktrees/feat/index"))
         assertEquals(true, WorktreeService.isBookkeeping("/r/.git/HEAD"))
         assertEquals(true, WorktreeService.isBookkeeping("/r/.idea/.workforest.yaml"))
+        assertEquals(true, WorktreeService.isBookkeeping("/r/.git/workforest/running/dev/feat"))
         assertEquals(false, WorktreeService.isBookkeeping("/r/src/main.py"))
     }
 

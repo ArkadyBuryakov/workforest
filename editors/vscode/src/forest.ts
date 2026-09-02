@@ -10,6 +10,7 @@ export interface WorktreeInfo {
   branch: string | null; // null when detached
   path: string;
   dirty: boolean;
+  running: string[]; // the scripts running there, by name
 }
 
 export interface Forest {
@@ -22,17 +23,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
 function asWorktree(value: unknown, where: string): WorktreeInfo {
   if (
     !isRecord(value) ||
     typeof value.name !== 'string' ||
     typeof value.path !== 'string' ||
     typeof value.dirty !== 'boolean' ||
-    !(typeof value.branch === 'string' || value.branch === null)
+    !(typeof value.branch === 'string' || value.branch === null) ||
+    !isStringArray(value.running)
   ) {
     throw new Error(`${where}: not a worktree entry`);
   }
-  return { name: value.name, branch: value.branch, path: value.path, dirty: value.dirty };
+  return {
+    name: value.name,
+    branch: value.branch,
+    path: value.path,
+    dirty: value.dirty,
+    running: value.running,
+  };
 }
 
 /** Parse `workforest list --json`. */
@@ -151,6 +163,53 @@ export function scriptDescription(script: ScriptInfo): string {
     marks.push('exclusive');
   }
   return marks.join(', ');
+}
+
+/** Where a script is running: in the worktree this window is in, and in
+ * how many others. */
+export interface RunningState {
+  here: boolean;
+  others: number;
+}
+
+export function runningState(forest: Forest, script: string, herePath: string | undefined): RunningState {
+  let here = false;
+  let others = 0;
+  for (const info of [forest.main, ...forest.worktrees]) {
+    if (!info.running.includes(script)) {
+      continue;
+    }
+    if (info.path === herePath) {
+      here = true;
+    } else {
+      others += 1;
+    }
+  }
+  return { here, others };
+}
+
+/** The badge a running script wears: a dot, or the number of worktrees
+ * when it runs in more than one of them; `here` picks the colour. */
+export function runningBadge(state: RunningState): { text: string; here: boolean } | undefined {
+  if (state.here) {
+    return { text: '●', here: true };
+  }
+  if (state.others === 0) {
+    return undefined;
+  }
+  return { text: state.others > 1 ? String(state.others) : '●', here: false };
+}
+
+/** The same in words, for a row's description and a tooltip. */
+export function runningLabel(state: RunningState): string {
+  const { here, others } = state;
+  if (here) {
+    return others > 0 ? `running here, ${others} elsewhere` : 'running here';
+  }
+  if (others === 1) {
+    return 'running in another worktree';
+  }
+  return others > 1 ? `running in ${others} worktrees` : '';
 }
 
 /**

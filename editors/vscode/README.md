@@ -42,12 +42,17 @@ path to pin a particular one.
 same toolbar as the JetBrains plugin in its header — Create, Open, Run
 Script, Checkout, Delete, Refresh, and under `…` Stop Script, Show Merged
 Configuration, the two Init commands, and Settings — each asking what to
-act on. Below it, two collapsible sections:
+act on, except Checkout and Delete, which act on the worktree this window
+is in (after confirming it) and only ask from the main checkout. Below
+it, two collapsible sections:
 
 - **Scripts**: the `scripts` of this window's repository, with their
   command in the tooltip. ▶ on a row runs it in this window's worktree
-  (`workforest run NAME` in a new integrated terminal), ■ stops it. The
-  section follows `.workforest.yaml` edits.
+  (`workforest run NAME` in a new integrated terminal), ■ stops it. A
+  running script wears a badge: light blue `●` when it runs in this
+  window's worktree, orange — the count of worktrees once there are
+  several — when it runs in others. The section follows
+  `.workforest.yaml` edits and the running scripts of every worktree.
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened first (worktrees this VS Code has never opened
   sort by creation time), each with its branch, a `●` when it has
@@ -62,8 +67,8 @@ act on. Below it, two collapsible sections:
 |---|---|
 | Create Worktree… | `workforest create BRANCH --no-open`, then opens the worktree. The picker lists branches not yet checked out (local and remote, like the CLI's completion); typing a name that matches none creates a new branch. |
 | Open Worktree… | opens the main checkout or a worktree in a new window, this window, or asks — see `workforest.openIn`. |
-| Delete Worktree… | `workforest delete NAME... --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Deleting the worktree this window shows moves the window to the main checkout. |
-| Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout. |
+| Delete Worktree… | `workforest delete NAME... --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Invoked from the header or the palette it targets the worktree this window is in; from the tree, the row it was invoked on. Deleting the worktree this window shows moves the window to the main checkout. |
+| Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout — this window's, unless invoked on a row. |
 | Run Script… | `workforest run NAME` in a new integrated terminal in the chosen worktree (this window's by default; from a worktree's context menu, that worktree), so Ctrl-C, colors, and background scripts behave exactly as in your shell. |
 | Stop Script… | `workforest stop NAME` in the chosen worktree. |
 | Open in Integrated Terminal | a terminal in the worktree's directory. |
@@ -71,7 +76,7 @@ act on. Below it, two collapsible sections:
 | Initialize Project Config | `workforest init`: scaffolds `.workforest.yaml` and opens it. |
 | Initialize Local Config | `workforest init --local`: scaffolds `.vscode/.workforest.yaml`, the untracked per-developer override layer, and opens it. |
 | Settings… | opens this extension's settings. |
-| Refresh | re-reads the forest. It also refreshes when the window regains focus and when worktrees are added or removed from any terminal. |
+| Refresh | re-reads the forest. It also refreshes when the window regains focus, when worktrees are added or removed from any terminal, and when a script starts or stops anywhere in the project. |
 
 **Status bar**: the worktree this window is in (`workforest.statusBar`);
 click it to switch.

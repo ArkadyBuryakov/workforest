@@ -145,6 +145,24 @@ def classify(record: JobRecord) -> JobState:
     return JobState.LIVE if _alive(record.owner_pid) else JobState.ORPHAN
 
 
+def running_scripts(common_dir: Path) -> dict[Path, list[str]]:
+    """Which scripts are running where: worktree path → script names,
+    sorted. A record whose processes are gone (STALE) does not count; it is
+    left on disk for its owner or `wf stop` to clean up.
+    """
+    directory = common_dir / RUNNING_SUBDIR
+    if not directory.is_dir():
+        return {}
+    found: dict[Path, list[str]] = {}
+    for script_dir in sorted(directory.iterdir()):
+        if not script_dir.is_dir():
+            continue
+        for job in jobs_for(common_dir, script_dir.name):
+            if classify(job.record) is not JobState.STALE:
+                found.setdefault(Path(job.record.worktree), []).append(script_dir.name)
+    return {worktree: sorted(names) for worktree, names in found.items()}
+
+
 def process_started_before(pid: int, when: float) -> bool | None:
     """Whether `pid` was started before epoch `when` — the definitive
     recycled-pid check. None where /proc is unavailable."""
