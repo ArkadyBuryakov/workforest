@@ -67,7 +67,8 @@ setup_scripts:
 #   background: true  detached, output in a log file (`workforest run -b` does
 #                     the same once); `workforest stop NAME` ends it
 #   exclusive: true   at most one instance per project — starting it stops
-#                     the running one in any worktree (cleanup included)
+#                     the running ones in any worktree (cleanup included);
+#                     without it a script may run several times at once
 #   cleanup: CMD      runs after the command ends, however it ended
 #   stop_timeout: N   seconds between SIGTERM and SIGKILL when stopped
 #                     (default: the top-level `stop_timeout`, 30; for a

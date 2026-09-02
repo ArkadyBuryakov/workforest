@@ -289,7 +289,7 @@ class TestList:
         process = subprocess.Popen(["sleep", "30"], process_group=0)
         try:
             jobs.write_record(
-                jobs.record_path(common, "dev", ctx.worktrees_dir / "feat"),
+                jobs.record_path(common, "dev", ctx.worktrees_dir / "feat", os.getpid()),
                 jobs.JobRecord(
                     script="dev",
                     worktree=str(ctx.worktrees_dir / "feat"),
