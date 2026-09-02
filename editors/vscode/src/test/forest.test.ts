@@ -123,6 +123,7 @@ test('parseScripts flattens every entry form, sorted', () => {
           backend: { command: 'docker compose up', background: true, exclusive: true },
           dev: { bulk: ['backend', 'frontend'] },
           fresh: { pipeline: ['migrate', 'dev'], background: true },
+          migrate: { command: 'npm run db:migrate', hidden: true },
         },
       },
       sources: [],
@@ -134,7 +135,7 @@ test('parseScripts flattens every entry form, sorted', () => {
       ['backend', 'command', 'docker compose up', 'background, exclusive'],
       ['dev', 'bulk', 'bulk: backend, frontend', ''],
       ['fresh', 'pipeline', 'pipeline: migrate → dev', 'background'],
-      ['test', 'command', 'npm test', ''],
+      ['test', 'command', 'npm test', ''], // `migrate` is hidden
     ],
   );
   assert.deepEqual(parseScripts('{"config": {}}'), []);

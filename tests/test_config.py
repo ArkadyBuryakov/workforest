@@ -217,6 +217,7 @@ class TestEntries:
             "  dev: {command: npm run dev, exclusive: true, cleanup: fuser -k 3000/tcp}\n"
             "  seed: {command: make seed, cleanup: make unseed}\n"
             "  plain: {command: make, exclusive: false}\n"
+            "  step: {command: make step, hidden: true}\n"
         )
         cfg = load_config()
         assert cfg.scripts == {
@@ -224,12 +225,14 @@ class TestEntries:
             "dev": ScriptSpec("npm run dev", exclusive=True, cleanup="fuser -k 3000/tcp"),
             "seed": ScriptSpec("make seed", cleanup="make unseed"),
             "plain": ScriptSpec("make"),
+            "step": ScriptSpec("make step", hidden=True),
         }
         assert cfg.as_dict()["scripts"] == {
             "test": "make test",
             "dev": {"command": "npm run dev", "exclusive": True, "cleanup": "fuser -k 3000/tcp"},
             "seed": {"command": "make seed", "cleanup": "make unseed"},
             "plain": "make",  # an explicit default collapses to the shorthand
+            "step": {"command": "make step", "hidden": True},
         }
 
     def test_script_background_and_stop_timeout(self, tmp_path: Path) -> None:
@@ -326,6 +329,10 @@ class TestEntries:
             (
                 "scripts:\n  test: {command: x, exclusive: sometimes}\n",
                 "scripts.test: 'exclusive' must be true or false",
+            ),
+            (
+                "scripts:\n  test: {command: x, hidden: maybe}\n",
+                "scripts.test: 'hidden' must be true or false",
             ),
             (
                 "scripts:\n  test: {command: x, cleanup: ''}\n",

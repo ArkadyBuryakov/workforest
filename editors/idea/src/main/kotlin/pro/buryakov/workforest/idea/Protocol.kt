@@ -61,19 +61,28 @@ object Protocol {
         running = entry.getAsJsonArray("running").map { it.asString },
     )
 
-    /** The `scripts` of `config --json` (`{"config": {"scripts": {...}}, "sources": [...]}`), by name. */
+    /**
+     * The `scripts` of `config --json` (`{"config": {"scripts": {...}}, "sources": [...]}`), by name;
+     * `hidden` entries are left out.
+     */
     fun parseScripts(stdout: String): List<ScriptInfo> = try {
         val scripts = JsonParser.parseString(stdout).asJsonObject.getAsJsonObject("config").get("scripts")
         if (scripts == null || scripts.isJsonNull) emptyList()
-        else scripts.asJsonObject.entrySet().sortedBy { it.key }.map { (name, entry) -> script(name, entry) }
+        else scripts.asJsonObject.entrySet().sortedBy { it.key }
+            .filterNot { (_, entry) -> hidden(entry) }
+            .map { (name, entry) -> script(name, entry) }
     } catch (e: RuntimeException) {
         throw WorkforestException("unexpected `config --json` output: ${e.message}")
     }
 
+    private fun hidden(entry: JsonElement) = entry.isJsonObject && bool(entry.asJsonObject, "hidden")
+
+    private fun bool(entry: JsonObject, key: String) = entry.get(key)?.takeIf { it.isJsonPrimitive }?.asBoolean == true
+
     private fun script(name: String, entry: JsonElement): ScriptInfo {
         if (entry.isJsonPrimitive) return ScriptInfo(name, ScriptKind.COMMAND, entry.asString, background = false, exclusive = false)
         val o = entry.asJsonObject
-        fun flag(key: String) = o.get(key)?.takeIf { it.isJsonPrimitive }?.asBoolean == true
+        fun flag(key: String) = bool(o, key)
         fun names(key: String) = o.getAsJsonArray(key).map { it.asString }
         val (kind, detail) = when {
             o.has("bulk") -> ScriptKind.BULK to "bulk: ${names("bulk").joinToString(", ")}"

@@ -71,10 +71,11 @@ class ProtocolTest {
             "test": "npm test",
             "backend": {"command": "docker compose up", "background": true, "exclusive": true, "cleanup": "docker compose down"},
             "dev": {"bulk": ["backend", "frontend"]},
-            "fresh": {"pipeline": ["migrate", "dev"], "background": true}
+            "fresh": {"pipeline": ["migrate", "dev"], "background": true},
+            "migrate": {"command": "npm run db:migrate", "hidden": true}
         }}, "sources": []}"""
         val scripts = Protocol.parseScripts(json)
-        assertEquals(listOf("backend", "dev", "fresh", "test"), scripts.map { it.name })
+        assertEquals(listOf("backend", "dev", "fresh", "test"), scripts.map { it.name }) // `migrate` is hidden
         assertEquals(ScriptInfo("test", ScriptKind.COMMAND, "npm test", background = false, exclusive = false), scripts[3])
         assertEquals(ScriptInfo("backend", ScriptKind.COMMAND, "docker compose up", background = true, exclusive = true), scripts[0])
         assertEquals("background, exclusive", scripts[0].flags)

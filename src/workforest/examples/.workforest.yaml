@@ -69,6 +69,8 @@ setup_scripts:
 #   exclusive: true   at most one instance per project — starting it stops
 #                     the running ones in any worktree (cleanup included);
 #                     without it a script may run several times at once
+#   hidden: true      left out of shell completion and the editor plugins'
+#                     script lists; `workforest run NAME` still runs it
 #   cleanup: CMD      runs after the command ends, however it ended
 #   stop_timeout: N   seconds between SIGTERM and SIGKILL when stopped
 #                     (default: the top-level `stop_timeout`, 30; for a
@@ -80,7 +82,9 @@ setup_scripts:
 # ---------------------------------------------------------------------------
 scripts:
   test: "npm test"
-  migrate: "npm run db:migrate"
+  migrate:
+    command: "npm run db:migrate"
+    hidden: true                    # a `fresh` step only: not offered by name
   reset-db: "dropdb app_dev --if-exists && createdb app_dev && npm run db:migrate"
   frontend:
     command: "cd frontend && npm run dev"
