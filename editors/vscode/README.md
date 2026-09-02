@@ -95,8 +95,11 @@ is shown as a warning; fix the file it names and refresh.
 npm install
 npm run check    # compile, unit tests (node:test, no VS Code needed), .vsix
 npm run smoke    # the extension inside a real VS Code against a scratch forest
-npm run icon     # re-render media/icon.png from media/icon.svg (needs rsvg-convert)
 ```
+
+`media/workforest.svg`, `media/icon.svg` and `media/icon.png` are generated
+from the project logo by `assets/generate` in the repository root — edit
+`assets/src/logo-icon.svg` and re-run that, never these files.
 
 `npm run smoke` needs `code` on the PATH, a display, and this repository's
 `.venv` (`uv sync` in the repository root): it builds a throwaway

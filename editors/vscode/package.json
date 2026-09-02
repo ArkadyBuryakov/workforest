@@ -387,8 +387,7 @@
     "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
     "package": "vsce package --no-dependencies",
     "smoke": "npm run compile && sh scripts/smoke.sh",
-    "check": "npm test && npm run package",
-    "icon": "rsvg-convert -w 128 -h 128 media/icon.svg -o media/icon.png"
+    "check": "npm test && npm run package"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

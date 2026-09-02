@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Generate every derived logo asset from the sources in assets/src/.
+
+Two hand-drawn sources, both a single path:
+
+- `logo.svg` is the full-size mark — README banners, promotional material,
+  anything rendered large.
+- `logo-icon.svg` is the same mark adapted for small formats: wider gaps
+  between the trees and heavier trunks, so it survives being drawn at 16 px.
+  Every icon-sized instance of the logo comes from this one.
+
+This script strips the sources down to their path and stamps it into each
+place the project ships a logo — the published assets next to the sources,
+and the icons vendored into the editor extensions (a .vsix and a plugin zip
+must be self-contained, so those files are copies, not references).
+
+Run `assets/generate` after editing either source; CI re-runs it on pull
+requests and commits the result. Needs `rsvg-convert` (librsvg) for the one
+asset that must be a PNG.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+ASSETS = ROOT / "assets"
+SRC = ASSETS / "src"
+
+# GitHub's markdown body inks, which the VS Code Marketplace and the JetBrains
+# plugin themes are close enough to share.
+INK_LIGHT = "#1f2328"
+INK_DARK = "#e6edf3"
+# The IntelliJ tool-window greys, which stripe icons must match.
+GREY_LIGHT = "#6C707E"
+GREY_DARK = "#CED0D6"
+
+VSCODE = ROOT / "editors" / "vscode" / "media"
+IDEA = ROOT / "editors" / "idea" / "src" / "main" / "resources"
+
+
+@dataclass(slots=True, frozen=True)
+class Source:
+    """A hand-drawn source: its viewBox and its single path."""
+
+    view_box: tuple[float, float, float, float]
+    path: str
+
+
+@dataclass(slots=True, frozen=True)
+class Target:
+    """One generated SVG."""
+
+    out: Path
+    source: str
+    fill: str
+    note: str
+    size: int | None = None
+    """`width`/`height` in px, for the consumers that want an intrinsic size."""
+    pad: float | None = None
+    """Squares the viewBox around the mark, scaled by this factor. `None`
+    keeps the source viewBox, which is what a mark drawn inline wants."""
+
+
+TARGETS = (
+    Target(
+        out=ASSETS / "logo.svg",
+        source="logo",
+        fill="currentColor",
+        note="the full-size mark, inheriting the surrounding text colour",
+    ),
+    Target(
+        out=ASSETS / "logo-light.svg",
+        source="logo",
+        fill=INK_LIGHT,
+        note="the full-size mark for a light background (README, docs)",
+    ),
+    Target(
+        out=ASSETS / "logo-dark.svg",
+        source="logo",
+        fill=INK_DARK,
+        note="the full-size mark for a dark background (README, docs)",
+    ),
+    Target(
+        out=ASSETS / "logo-icon.svg",
+        source="logo-icon",
+        fill="currentColor",
+        note="the small-format mark, inheriting the surrounding text colour",
+    ),
+    Target(
+        out=VSCODE / "workforest.svg",
+        source="logo-icon",
+        fill="currentColor",
+        note="the VS Code Activity Bar and view icon; VS Code masks it with the theme foreground",
+    ),
+    Target(
+        out=IDEA / "META-INF" / "pluginIcon.svg",
+        source="logo-icon",
+        fill=INK_LIGHT,
+        note="the JetBrains plugin icon (light)",
+        size=40,
+        pad=1.2,
+    ),
+    Target(
+        out=IDEA / "META-INF" / "pluginIcon_dark.svg",
+        source="logo-icon",
+        fill=INK_DARK,
+        note="the JetBrains plugin icon (dark)",
+        size=40,
+        pad=1.2,
+    ),
+    Target(
+        out=IDEA / "icons" / "toolWindow.svg",
+        source="logo-icon",
+        fill=GREY_LIGHT,
+        note="the JetBrains tool-window stripe icon (light)",
+        size=13,
+        pad=1.08,
+    ),
+    Target(
+        out=IDEA / "icons" / "toolWindow_dark.svg",
+        source="logo-icon",
+        fill=GREY_DARK,
+        note="the JetBrains tool-window stripe icon (dark)",
+        size=13,
+        pad=1.08,
+    ),
+)
+
+# The Marketplace icon must be a PNG, and it is shown against both Marketplace
+# themes, so it carries its own background: the mark in the dark-theme ink on a
+# rounded tile of the light-theme ink.
+BADGE = VSCODE / "icon.svg"
+BADGE_PNG = VSCODE / "icon.png"
+BADGE_SIZE = 128
+BADGE_RADIUS = 24
+BADGE_INSET = 24
+
+SVG_NS = "http://www.w3.org/2000/svg"
+
+
+def read_source(name: str) -> Source:
+    root = ET.parse(SRC / f"{name}.svg").getroot()
+    box = [float(n) for n in root.get("viewBox", "").split()]
+    paths = [p.get("d", "") for p in root.iter(f"{{{SVG_NS}}}path")]
+    if len(box) != 4 or len(paths) != 1 or not paths[0]:
+        raise SystemExit(f"assets/src/{name}.svg: expected a viewBox and exactly one path")
+    x, y, w, h = box
+    return Source(view_box=(x, y, w, h), path=paths[0])
+
+
+def num(value: float) -> str:
+    """SVG-friendly number: no trailing zeros, no scientific notation."""
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def view_box(source: Source, pad: float | None) -> str:
+    x, y, w, h = source.view_box
+    if pad is None:
+        return " ".join(num(n) for n in (x, y, w, h))
+    side = max(w, h) * pad
+    return " ".join(num(n) for n in (x + w / 2 - side / 2, y + h / 2 - side / 2, side, side))
+
+
+def render_svg(target: Target, source: Source) -> str:
+    size = f' width="{target.size}" height="{target.size}"' if target.size else ""
+    return (
+        f"<!-- Generated by assets/generate from assets/src/{target.source}.svg — do not edit.\n"
+        f"     {target.note} -->\n"
+        f'<svg xmlns="{SVG_NS}"{size} viewBox="{view_box(source, target.pad)}">\n'
+        f'  <path fill="{target.fill}" d="{source.path}"/>\n'
+        f"</svg>\n"
+    )
+
+
+def render_badge(source: Source) -> str:
+    inner = BADGE_SIZE - 2 * BADGE_INSET
+    return (
+        f"<!-- Generated by assets/generate from assets/src/logo-icon.svg — do not edit.\n"
+        f"     the source of icon.png, the VS Code Marketplace icon (which must be a\n"
+        f"     PNG): the mark in the dark-theme ink on a tile of the light-theme ink,\n"
+        f"     so it reads on both Marketplace themes. -->\n"
+        f'<svg xmlns="{SVG_NS}" width="{BADGE_SIZE}" height="{BADGE_SIZE}"'
+        f' viewBox="0 0 {BADGE_SIZE} {BADGE_SIZE}">\n'
+        f'  <rect width="{BADGE_SIZE}" height="{BADGE_SIZE}" rx="{BADGE_RADIUS}"'
+        f' fill="{INK_LIGHT}"/>\n'
+        f'  <svg x="{BADGE_INSET}" y="{BADGE_INSET}" width="{inner}" height="{inner}"'
+        f' viewBox="{view_box(source, None)}">\n'
+        f'    <path fill="{INK_DARK}" d="{source.path}"/>\n'
+        f"  </svg>\n"
+        f"</svg>\n"
+    )
+
+
+def write(out: Path, content: str) -> bool:
+    """Write `content` unless it is already there. True when it changed."""
+    if out.exists() and out.read_text(encoding="utf-8") == content:
+        return False
+    out.write_text(content, encoding="utf-8")
+    print(f"wrote {out.relative_to(ROOT)}")
+    return True
+
+
+def main() -> None:
+    sources = {name: read_source(name) for name in ("logo", "logo-icon")}
+    for target in TARGETS:
+        write(target.out, render_svg(target, sources[target.source]))
+    # Rasterise only when the badge actually changed: different librsvg
+    # versions emit different bytes for the same drawing, so an unconditional
+    # render would churn the PNG on every run.
+    if not write(BADGE, render_badge(sources["logo-icon"])) and BADGE_PNG.exists():
+        return
+    if shutil.which("rsvg-convert") is None:
+        sys.exit("rsvg-convert not found: install librsvg to regenerate media/icon.png")
+    subprocess.run(
+        ["rsvg-convert", "-w", str(BADGE_SIZE), "-h", str(BADGE_SIZE), BADGE, "-o", BADGE_PNG],
+        check=True,
+    )
+    print(f"rendered {BADGE_PNG.relative_to(ROOT)}")
+
+
+if __name__ == "__main__":
+    main()
