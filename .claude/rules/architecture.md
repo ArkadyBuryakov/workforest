@@ -47,3 +47,11 @@
   only file that spawns. `terminal/` is loaded only with the bundled
   Terminal plugin (optional dependency). Verify with `./gradlew build
   buildPlugin` there (JDK 21).
+- Logo assets are generated, never hand-edited: `assets/src/logo.svg`
+  (full size) and `assets/src/logo-icon.svg` (adapted for small formats,
+  the source of every icon) are the only files touched by hand.
+  `assets/generate` writes `assets/logo*.svg` plus the icons vendored into
+  `editors/vscode/media/` and `editors/idea/.../resources/`; each carries a
+  "do not edit" header. Adding a place that ships the logo means adding a
+  target there, not another copy. `.github/workflows/assets.yml` re-runs the
+  script on pull requests and commits any difference.
