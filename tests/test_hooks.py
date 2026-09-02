@@ -19,6 +19,13 @@ from workforest.errors import ScriptKilledError, WorkforestError
 from .conftest import Repo
 
 
+def sole_log(common: Path, script: str, worktree: Path) -> Path:
+    """The log of the only instance of `script` in `worktree`: its name
+    carries the pid of a supervisor the test never sees."""
+    [path] = sorted((common / jobs.LOGS_SUBDIR / script).glob(f"{worktree.name}.*.log"))
+    return path
+
+
 def make_worktree(repo: Repo, name: str = "feat") -> Path:
     target = repo.path.parent / "worktrees" / repo.path.name / name
     gitutil.worktree_add(repo.path, target, name)
@@ -241,7 +248,7 @@ class TestCleanup:
 
     def test_record_lives_only_while_running(self, repo: Repo) -> None:
         common = gitutil.git_common_dir(repo.path)
-        probe = f"test -f {jobs.record_path(common, 'x', repo.path)} && echo yes"
+        probe = f"test -f {jobs.record_path(common, 'x', repo.path, os.getpid())} && echo yes"
         cfg = Config(scripts={"x": ScriptSpec(probe)})
         hooks.run_named_script(cfg, "x", cwd=repo.path, env=env_for(repo, repo.path, "main"))
         assert jobs.jobs_for(common, "x") == []
@@ -375,7 +382,7 @@ class TestExclusive:
             boot_id=jobs.boot_id(),
             started_at=time.time(),
         )
-        jobs.write_record(jobs.record_path(common, "dev", feat), record)
+        jobs.write_record(jobs.record_path(common, "dev", feat, dead.pid), record)
         monkeypatch.setattr(jobs, "process_started_before", lambda pid, when: True)
 
         hooks.run_named_script(
@@ -398,16 +405,17 @@ class TestExclusive:
         sleeper = subprocess.Popen(["sleep", "30"], process_group=0)
         threading.Thread(target=sleeper.wait, daemon=True).start()
         gone = repo.path.parent / "gone"
+        owner = _reaped_pid()
         record = jobs.JobRecord(
             script="dev",
             worktree=str(gone),
             branch="gone",
             pgid=sleeper.pid,
-            owner_pid=_reaped_pid(),
+            owner_pid=owner,
             boot_id=jobs.boot_id(),
             started_at=time.time(),
         )
-        jobs.write_record(jobs.record_path(common, "dev", gone), record)
+        jobs.write_record(jobs.record_path(common, "dev", gone, owner), record)
         monkeypatch.setattr(jobs, "process_started_before", lambda pid, when: True)
 
         hooks.run_named_script(
@@ -494,12 +502,12 @@ class TestBackground:
         hooks.run_named_script(cfg, "bg", cwd=repo.path, env=env_for(repo, repo.path, "main"))
         assert time.monotonic() - started < 0.5  # returned while the command still ran
 
-        log = jobs.log_path(common, "bg", repo.path)
+        [job] = jobs.jobs_for(common, "bg")
+        assert job.record.owner_pid != os.getpid()  # the supervisor owns it
+        log = jobs.log_path(common, "bg", repo.path, job.record.owner_pid)
         err = capsys.readouterr().err
         assert "started 'bg' in the background (pid " in err
         assert str(log) in err
-        [job] = jobs.jobs_for(common, "bg")
-        assert job.record.owner_pid != os.getpid()  # the supervisor owns it
         assert jobs.classify(job.record) is jobs.JobState.LIVE
 
         wait_for(lambda: not job.path.exists())
@@ -508,28 +516,6 @@ class TestBackground:
         assert "out main\n" in text
         assert "err\n" in text
         assert "running cleanup for 'bg'" in text
-
-    def test_second_instance_in_the_same_worktree_is_refused(
-        self, repo: Repo, tmp_path: Path
-    ) -> None:
-        cfg = Config(scripts={"srv": ScriptSpec("sleep 30", background=True)})
-        env = env_for(repo, repo.path, "main")
-        hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
-        with pytest.raises(WorkforestError, match=r"'srv' is already running in 'api' \(pid \d+\)"):
-            hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
-        with pytest.raises(WorkforestError, match="`wf stop srv` first"):
-            hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env, background=False)
-        hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)
-
-        # a stale record from a dead instance is no obstacle
-        common = gitutil.git_common_dir(repo.path)
-        jobs.write_record(
-            jobs.record_path(common, "srv", repo.path),
-            jobs.JobRecord("srv", str(repo.path), "main", _reaped_pid(), _reaped_pid(), "", 0.0),
-        )
-        hooks.run_named_script(
-            Config(scripts={"srv": ScriptSpec("true")}), "srv", cwd=repo.path, env=env
-        )
 
     def test_flag_overrides_entry(self, repo: Repo, capsys: pytest.CaptureFixture[str]) -> None:
         cfg = Config(scripts={"bg": ScriptSpec("true", background=True)})
@@ -575,7 +561,80 @@ class TestBackground:
         assert not job.path.exists()
         assert cleaned.exists()
         assert "stopping 'bg' in 'api'" in capsys.readouterr().err
-        assert "stopped by `wf stop` in 'api'" in jobs.log_path(common, "bg", repo.path).read_text()
+        log = jobs.log_path(common, "bg", repo.path, job.record.owner_pid)
+        assert "stopped by `wf stop` in 'api'" in log.read_text()
+
+
+class TestConcurrent:
+    """A script that is not `exclusive` runs as many times as it is asked
+    to, in one worktree or across several."""
+
+    def test_foreground_run_joins_a_live_instance(self, repo: Repo, tmp_path: Path) -> None:
+        cfg = Config(scripts={"srv": ScriptSpec(f"touch {tmp_path / 'ran'}")})
+        common = gitutil.git_common_dir(repo.path)
+        sleeper = subprocess.Popen(["sleep", "30"], process_group=0)
+        live = jobs.record_path(common, "srv", repo.path, os.getpid() - 1)
+        jobs.write_record(
+            live,
+            jobs.JobRecord(
+                script="srv",
+                worktree=str(repo.path),
+                branch="main",
+                pgid=sleeper.pid,
+                owner_pid=os.getpid(),
+                boot_id=jobs.boot_id(),
+                started_at=time.time(),
+            ),
+        )
+        try:
+            hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env_for(repo, repo.path, "main"))
+        finally:
+            os.killpg(sleeper.pid, signal.SIGKILL)
+            sleeper.wait()
+        assert (tmp_path / "ran").exists()
+        assert live.is_file()  # the instance already running is untouched
+
+    def test_instances_get_a_record_and_a_log_each(
+        self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cleaned = tmp_path / "cleaned"
+        cfg = Config(
+            scripts={"srv": ScriptSpec("sleep 30", background=True, cleanup=f"echo x >> {cleaned}")}
+        )
+        env = env_for(repo, repo.path, "main")
+        common = gitutil.git_common_dir(repo.path)
+        hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
+        hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
+
+        found = jobs.jobs_for(common, "srv")
+        owners = [job.record.owner_pid for job in found]
+        assert len(set(owners)) == 2
+        assert [job.path.name for job in found] == sorted(f"api.{pid}" for pid in owners)
+        for pid in owners:
+            assert jobs.log_path(common, "srv", repo.path, pid).is_file()
+        assert capsys.readouterr().err.count("started 'srv' in the background") == 2
+
+        hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)  # every instance here
+        assert jobs.jobs_for(common, "srv") == []
+        assert cleaned.read_text() == "x\nx\n"  # each instance ran its own cleanup
+
+    def test_start_clears_out_dead_instances(self, repo: Repo) -> None:
+        cfg = Config(scripts={"srv": ScriptSpec("sleep 30", background=True)})
+        env = env_for(repo, repo.path, "main")
+        common = gitutil.git_common_dir(repo.path)
+        dead = _reaped_pid()
+        jobs.write_record(
+            jobs.record_path(common, "srv", repo.path, dead),
+            jobs.JobRecord("srv", str(repo.path), "main", dead, dead, "", 0.0),
+        )
+        stale_log = jobs.log_path(common, "srv", repo.path, dead)
+        stale_log.parent.mkdir(parents=True, exist_ok=True)
+        stale_log.write_text("output of a run that is long gone")
+
+        hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
+        assert not stale_log.exists()
+        assert len(jobs.jobs_for(common, "srv")) == 1
+        hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)
 
 
 class TestStop:
@@ -593,11 +652,9 @@ class TestStop:
     def test_stale_records_do_not_count(self, repo: Repo) -> None:
         cfg = Config(scripts={"x": ScriptSpec("true")})
         common = gitutil.git_common_dir(repo.path)
-        path = jobs.record_path(common, "x", repo.path)
-        jobs.write_record(
-            path,
-            jobs.JobRecord("x", str(repo.path), "main", _reaped_pid(), _reaped_pid(), "", 0.0),
-        )
+        dead = _reaped_pid()
+        path = jobs.record_path(common, "x", repo.path, dead)
+        jobs.write_record(path, jobs.JobRecord("x", str(repo.path), "main", dead, dead, "", 0.0))
         with pytest.raises(WorkforestError, match="not running"):
             hooks.stop_script(cfg, "x", cwd=repo.path, env={})
         assert not path.exists()
@@ -613,14 +670,15 @@ class TestStop:
             process = subprocess.Popen(["sleep", "30"], process_group=0)
             threading.Thread(target=process.wait, daemon=True).start()
             sleepers.append(process)
+            owner = _reaped_pid()
             jobs.write_record(
-                jobs.record_path(common, "x", worktree),
+                jobs.record_path(common, "x", worktree, owner),
                 jobs.JobRecord(
                     "x",
                     str(worktree),
                     worktree.name,
                     process.pid,
-                    _reaped_pid(),
+                    owner,
                     jobs.boot_id(),
                     time.time(),
                 ),
@@ -654,11 +712,11 @@ class TestStop:
         monkeypatch.setattr(jobs, "classify", lambda record: jobs.JobState.LIVE)
         env = env_for(repo, repo.path, "main")
 
-        jobs.write_record(jobs.record_path(common, "x", repo.path), record)
+        jobs.write_record(jobs.record_path(common, "x", repo.path, os.getpid()), record)
         hooks.stop_script(
             Config(scripts={"x": ScriptSpec("true")}, stop_timeout=7), "x", cwd=repo.path, env=env
         )
-        jobs.write_record(jobs.record_path(common, "x", repo.path), record)
+        jobs.write_record(jobs.record_path(common, "x", repo.path, os.getpid()), record)
         hooks.stop_script(
             Config(scripts={"x": ScriptSpec("true", stop_timeout=2)}, stop_timeout=7),
             "x",
@@ -780,7 +838,7 @@ class TestGroups:
         common = gitutil.git_common_dir(repo.path)
         out = tmp_path / "seen"
         probe = " && ".join(
-            f"test -f {jobs.record_path(common, name, repo.path)}" for name in ("m", "g")
+            f'test -n "$(ls {jobs.records_dir(common, name)})"' for name in ("m", "g")
         )
         cfg = Config(
             scripts={"m": _spec(f"{probe} && echo yes > {out}"), "g": ScriptSpec(bulk=("m",))}
@@ -789,7 +847,7 @@ class TestGroups:
         assert out.read_text() == "yes\n"
         assert jobs.jobs_for(common, "m") == [] and jobs.jobs_for(common, "g") == []
 
-    def test_member_already_running_fails_the_step(self, repo: Repo, tmp_path: Path) -> None:
+    def test_member_already_running_is_started_again(self, repo: Repo) -> None:
         cfg = Config(
             scripts={
                 "srv": _spec("sleep 30", background=True),
@@ -797,12 +855,14 @@ class TestGroups:
             }
         )
         env = env_for(repo, repo.path, "main")
+        common = gitutil.git_common_dir(repo.path)
         hooks.run_named_script(cfg, "srv", cwd=repo.path, env=env)
         try:
-            with pytest.raises(WorkforestError, match="script 'chain' failed with exit code 1"):
-                hooks.run_named_script(cfg, "chain", cwd=repo.path, env=env)
+            hooks.run_named_script(cfg, "chain", cwd=repo.path, env=env)
+            assert len(jobs.jobs_for(common, "srv")) == 2
         finally:
-            hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)
+            hooks.stop_script(cfg, "srv", cwd=repo.path, env=env)  # both of them
+        assert jobs.jobs_for(common, "srv") == []
 
     def test_stop_group_stops_members_and_runs_every_cleanup(
         self, repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -828,7 +888,7 @@ class TestGroups:
         assert cleaned.read_text().endswith("servers\n")  # the group's own cleanup comes last
         for name in ("s1", "s2", "servers"):
             assert jobs.jobs_for(common, name) == []
-        log = jobs.log_path(common, "servers", repo.path).read_text()
+        log = sole_log(common, "servers", repo.path).read_text()
         assert "s1 | Error: script 's1' was killed by SIGTERM" in log
         assert "Error: member 's2' of 'servers' was killed by SIGTERM" in log
         assert "stopped by `wf stop` in 'api'" in log
@@ -851,7 +911,7 @@ class TestGroups:
 
         assert cleaned.read_text() == "s1\n"
         wait_for(lambda: jobs.jobs_for(common, "servers") == [])  # s2 ends on its own
-        log = jobs.log_path(common, "servers", repo.path).read_text()
+        log = sole_log(common, "servers", repo.path).read_text()
         assert (
             "s1 | Error: script 's1' was killed by SIGTERM (stopped by `wf stop` in 'api')" in log
         )

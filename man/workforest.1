@@ -204,7 +204,8 @@ carry
 (true/false),
 and
 .B running
-(the names of the scripts running there);
+(the names of the scripts running there, each once however many instances
+of it run);
 .B worktrees_dir
 is the resolved worktrees directory.
 .SS delete \fINAME\fR...
@@ -259,9 +260,9 @@ command (see
 then runs however the command ended.
 Starting an
 .B exclusive
-script first stops its running instance in any worktree of the project
-and waits for that instance's cleanup; any other script refuses to start
-while it is already running in this worktree (see
+script first stops every running instance in the project and waits for
+their cleanup; any other script simply joins the instances already
+running, in this worktree or elsewhere (see
 .BR stop ).
 The exit status is the command's, or 128+\fIN\fR when it was killed by
 signal
@@ -280,8 +281,10 @@ member's status once all have ended.
 .BR \-b ", " \-\-background
 Detach instead: the command runs under a supervisor of its own with its
 output in
-.IR .git/workforest/logs/ SCRIPT / WORKTREE .log
-of the main checkout, and
+.IR .git/workforest/logs/ SCRIPT / WORKTREE . PID .log
+of the main checkout \(em
+.I PID
+being the process that owns the instance \(em and
 .B workforest
 returns once it is clearly running (a command that dies right away is
 reported with the tail of its log).
@@ -293,7 +296,7 @@ Must precede
 after it, it belongs to
 .IR ARGS .
 .SS stop \fISCRIPT\fR [\fB\-\-all\fR]
-Stop the script's running instance in the current worktree \(em
+Stop every running instance of the script in the current worktree \(em
 foreground or background, started from any terminal \(em with SIGTERM,
 then SIGKILL after
 .B stop_timeout
@@ -304,7 +307,7 @@ under a running group.
 Fails when nothing is running.
 .TP
 .B \-\-all
-Every worktree's instance of the script, not just this one's.
+Every worktree's instances of the script, not just this one's.
 .SS tui [\fIMODE\fR]
 Interactive mode, driven by
 .BR fzf (1).

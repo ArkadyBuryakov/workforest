@@ -55,7 +55,7 @@ class ScriptSpec:
     bulk: tuple[str, ...] | None = None  # members run at once; done when all are
     pipeline: tuple[str, ...] | None = None  # members run in order; stops at the first failure
     background: bool = False  # detach, with output to a log file, instead of holding the terminal
-    exclusive: bool = False  # starting it stops the running instance anywhere in the project
+    exclusive: bool = False  # starting it stops every running instance in the project
     cleanup: str | None = None  # runs after the command ends, however it ended
     stop_timeout: float | None = None  # seconds between SIGTERM and SIGKILL; None: the global one
 

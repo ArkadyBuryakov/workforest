@@ -236,19 +236,25 @@ way Ctrl-C would, so a shell loop around it aborts.
 
 A `background` script (or `wf run -b NAME`) is detached instead: it runs
 under a supervisor of its own — the same process-group and cleanup
-handling, minus the terminal — with its output in
-`.git/workforest/logs/NAME/WORKTREE.log` of the main checkout, and `wf`
-returns as soon as it is clearly running (a command that dies right away
-is reported with the tail of its log). That way several long-running
-scripts can be started from one terminal. `wf stop NAME` stops this
-worktree's instance, foreground or background, from any terminal;
-`--all` stops every worktree's. A script runs once per worktree: starting
-one that is already running there fails (`wf stop` it first).
+handling, minus the terminal — with its output in a log file under
+`.git/workforest/logs/NAME/` of the main checkout, and `wf` returns as
+soon as it is clearly running (a command that dies right away is reported
+with the tail of its log; the path is printed when it starts). That way
+several long-running scripts can be started from one terminal. Any number
+of instances of a script may run at once, in one worktree or across
+several: each keeps a record and — in the background — a log of its own,
+named after the worktree and the pid of the `wf run` that owns it
+(`WORKTREE.PID.log`), and each runs its own `cleanup` when it ends, so a
+`cleanup` has to tolerate a sibling instance still running. `wf stop
+NAME` stops every instance in this worktree, foreground or background,
+started from any terminal; `--all` stops every worktree's. Logs of
+instances that are no longer running are removed the next time the script
+starts there. Use `exclusive` for a script that must not run twice.
 
-An `exclusive` script runs at most once per project: starting it stops the
-running instance in any worktree (this one included), waits for that
-instance's cleanup to finish, and only then starts. Stopping — by `wf
-stop` or by preemption — is SIGTERM, then SIGKILL after `stop_timeout`
+An `exclusive` script runs at most once per project: starting it stops
+every running instance in any worktree (this one included), waits for
+their cleanup to finish, and only then starts. Stopping — by `wf stop` or
+by preemption — is SIGTERM, then SIGKILL after `stop_timeout`
 seconds (30 by default; the top-level key changes it for every script, an
 entry's own `stop_timeout` for that one). The stopped instance's `wf run`
 reports ``killed by SIGTERM (stopped by `wf run backend` in 'feat-x')``
@@ -283,8 +289,9 @@ A group is a script like any other: `wf run -b`, `background`,
 member, waits for all their cleanups, then runs the group's own. A group
 takes no extra arguments; its `stop_timeout` defaults to the longest of
 its members'. Members stay individually visible: `wf stop MEMBER` stops
-that member out from under a running group, and a member already running
-in the worktree fails its step.
+that member out from under a running group, and a member that is already
+running elsewhere is started again — `exclusive` is what makes a member
+stop the running one instead.
 
 A pipeline's steps run like consecutive `wf run`s, each with the
 terminal; a `background` member is started and left running while the
@@ -382,7 +389,7 @@ directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
 checkout, in the same `name`/`branch`/`path`/`dirty`/`running` shape as each
 entry of `worktrees`, `running` being the names of the scripts running
-there) and the resolved `worktrees_dir` — and is what the editor extensions
+there, each once however many instances of it run) and the resolved `worktrees_dir` — and is what the editor extensions
 read.
 
 ## JetBrains IDE plugin

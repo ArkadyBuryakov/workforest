@@ -257,8 +257,17 @@ class _Job:
     snippet: str
     cwd: Path
     env: dict[str, str]
-    record_path: Path
+    common_dir: Path  # where the record and the log live
     tty: bool = True
+
+    def record_path(self, pid: int) -> Path:
+        return jobs.record_path(self.common_dir, self.name, self.cwd, pid)
+
+    def log_path(self, pid: int) -> Path:
+        """The log of the instance owned by `pid`: the detached supervisor,
+        which names its own log from the inside and is named from the
+        outside by the `wf run` that forked it."""
+        return jobs.log_path(self.common_dir, self.name, self.cwd, pid)
 
 
 def _fileno(stream: int | IO[bytes]) -> int:
@@ -310,14 +319,14 @@ def _spawn(job: _Job, sink: _Sink, tty_fd: int | None) -> int:
     return pid
 
 
-def _run_command(job: _Job) -> _JobResult:
+def _run_command(job: _Job, record_path: Path) -> _JobResult:
     """Run the job in its own process group with a job record on disk for
     as long as it runs."""
     tty_fd = _controlling_tty() if job.tty else None
     with _diverted_output() as sink:
         pgid = _spawn(job, sink, tty_fd)
         jobs.write_record(
-            job.record_path,
+            record_path,
             jobs.JobRecord(
                 script=job.name,
                 worktree=str(job.cwd),
@@ -329,7 +338,7 @@ def _run_command(job: _Job) -> _JobResult:
             ),
         )
         code = _wait(pgid, tty_fd=tty_fd)
-    record = jobs.read_record(job.record_path)
+    record = jobs.read_record(record_path)
     return _JobResult(code, record.stopped_by if record else None)
 
 
@@ -343,12 +352,14 @@ def _run_cleanup(spec: ScriptSpec, name: str, *, cwd: Path, env: dict[str, str])
 
 
 def _run_to_completion(job: _Job) -> _JobResult:
-    """Command, then cleanup, then — and only then — the record goes."""
+    """Command, then cleanup, then — and only then — the record goes. We
+    own the run, so our pid names the instance."""
+    record_path = job.record_path(os.getpid())
     try:
-        result = _run_command(job)
+        result = _run_command(job, record_path)
         _run_cleanup(job.spec, job.name, cwd=job.cwd, env=job.env)
     finally:
-        job.record_path.unlink(missing_ok=True)
+        record_path.unlink(missing_ok=True)
     return result
 
 
@@ -398,7 +409,7 @@ def _exit_with(code: int) -> None:  # pragma: no cover - ends a forked child
     os._exit(code)
 
 
-def _supervise_detached(job: _Job, log_fd: int) -> None:  # pragma: no cover - the forked child
+def _supervise_detached(job: _Job) -> None:  # pragma: no cover - the forked child
     """The background supervisor: our fork, in a session of its own, with
     the log as its stdout/stderr. Runs the command exactly like the
     foreground path does and exits as `wf run` would; never returns."""
@@ -408,6 +419,7 @@ def _supervise_detached(job: _Job, log_fd: int) -> None:  # pragma: no cover - t
         devnull = os.open(os.devnull, os.O_RDONLY)
         os.dup2(devnull, 0)
         os.close(devnull)
+        log_fd = os.open(job.log_path(os.getpid()), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         _redirect_output(log_fd, log_fd)
         os.close(log_fd)
         result = _run_to_completion(job)
@@ -421,18 +433,28 @@ def _supervise_detached(job: _Job, log_fd: int) -> None:  # pragma: no cover - t
         os._exit(code)
 
 
-def _start_background(job: _Job, log_path: Path) -> None:
+def _log_tail(log_path: Path, lines: int = 10) -> str:
+    """The last lines of a log, or "" when there is nothing to read (the
+    supervisor died before it could open one)."""
+    try:
+        text = log_path.read_text(errors="replace")
+    except OSError:
+        return ""
+    return "\n".join(text.strip().splitlines()[-lines:])
+
+
+def _start_background(job: _Job) -> None:
     """Fork a detached supervisor for the command and return once it is
     clearly running — a command that dies within the grace period is
-    reported with the tail of its log instead of failing invisibly."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    reported with the tail of its log instead of failing invisibly. The
+    supervisor writes the log; its pid is what names it."""
+    job.log_path(os.getpid()).parent.mkdir(parents=True, exist_ok=True)  # one dir per script
     sys.stdout.flush()
     sys.stderr.flush()
     pid = os.fork()
     if pid == 0:  # pragma: no cover - the forked child
-        _supervise_detached(job, log_fd)
-    os.close(log_fd)
+        _supervise_detached(job)
+    log_path = job.log_path(pid)
     deadline = time.monotonic() + _GRACE_SECONDS
     while time.monotonic() < deadline:
         reaped, status = os.waitpid(pid, os.WNOHANG)
@@ -441,10 +463,10 @@ def _start_background(job: _Job, log_path: Path) -> None:
             if code == 0:
                 output.success(f"{job.name!r} already finished (log: {log_path})")
                 return
-            tail = log_path.read_text(errors="replace").strip().splitlines()[-10:]
+            tail = _log_tail(log_path)
             message = f"script {job.name!r} exited with status {code} right after launch"
             if tail:
-                message += ":\n" + "\n".join(tail)
+                message += ":\n" + tail
             raise WorkforestError(message)
         time.sleep(0.02)
     output.success(f"started {job.name!r} in the background (pid {pid}, log: {log_path})")
@@ -478,8 +500,7 @@ def _run_step(job: _Job) -> int:
     for a death by signal N — instead of raising."""
     try:
         if job.spec.background:
-            common_dir = gitutil.git_common_dir(job.cwd)
-            _start_background(job, jobs.log_path(common_dir, job.name, job.cwd))
+            _start_background(job)
             return 0
         output.success(_start_message(job))
         result = _run_to_completion(job)
@@ -707,9 +728,9 @@ def _signal_members(
     for runner in runners:
         if runner.code is not None:
             continue
-        record = jobs.read_record(jobs.record_path(common_dir, runner.name, job.cwd))
-        if record is not None:
-            jobs.signal_group(record.pgid, signum)
+        for member in jobs.jobs_for(common_dir, runner.name):
+            if member.record.owner_pid == runner.pid:  # this runner's instance, not another
+                jobs.signal_group(member.record.pgid, signum)
 
 
 def _suspend_members(runners: list[_Runner], job: _Job) -> None:  # pragma: no cover
@@ -814,9 +835,8 @@ def _prepare(
     tty: bool = True,
 ) -> _Job:
     """Resolve a script and clear the way for it: an `exclusive` one first
-    stops its running instance anywhere in the project (that instance's
-    cleanup included); any other refuses to start while it is already
-    running in this worktree."""
+    stops every running instance in the project (their cleanup included);
+    any other simply joins the instances already running here."""
     spec = _resolve_script(config, name)
     snippet = spec.command or ""
     if extra_args:
@@ -832,18 +852,11 @@ def _prepare(
             by=f"`wf run {name}` in {cwd.name!r}",
             env=env,
         )
-    record_path = jobs.record_path(common_dir, name, cwd)
-    # One instance per script per worktree: records and logs are keyed that
-    # way, and `wf stop NAME` means "the" instance here.
-    if (existing := jobs.read_record(record_path)) is not None:
-        if jobs.classify(existing) is jobs.JobState.STALE:
-            record_path.unlink(missing_ok=True)
-        else:
-            raise WorkforestError(
-                f"{name!r} is already running in {cwd.name!r} (pid {existing.pgid}); "
-                f"`wf stop {name}` first"
-            )
-    return _Job(config, spec, name, snippet, cwd, env, record_path, tty)
+    # Any number of instances may share a worktree, each recorded and
+    # logged under the pid of the run that owns it; what dead ones left
+    # behind goes now.
+    jobs.prune(common_dir, name, cwd)
+    return _Job(config, spec, name, snippet, cwd, env, common_dir, tty)
 
 
 def run_named_script(
@@ -864,7 +877,7 @@ def run_named_script(
     """
     job = _prepare(config, name, cwd=cwd, env=env, extra_args=extra_args)
     if job.spec.background if background is None else background:
-        _start_background(job, jobs.log_path(gitutil.git_common_dir(cwd), name, cwd))
+        _start_background(job)
         return
     output.success(_start_message(job))
     _raise_for(_run_to_completion(job), name)

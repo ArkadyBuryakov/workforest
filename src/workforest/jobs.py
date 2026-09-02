@@ -2,10 +2,12 @@
 
 One JSON record per running `wf run`, under the repository's common git
 dir so every worktree of a project sees the same set:
-`<common>/workforest/running/<script>/<worktree-name>`. A record is a
-hint, never the truth: it outlives a `kill -9` or a reboot, so whoever
-reads one verifies that its processes are alive, from this boot, and
-still the group we started, and drops it otherwise.
+`<common>/workforest/running/<script>/<worktree-name>.<pid>`, the pid
+being the `wf run` that owns the instance — one worktree may hold
+several of them at once. A record is a hint, never the truth: it
+outlives a `kill -9` or a reboot, so whoever reads one verifies that its
+processes are alive, from this boot, and still the group we started, and
+drops it otherwise.
 
 Cleanup belongs to the owning `wf run`: it runs the script's `cleanup`
 once its command ends — however it ended — and only then removes its
@@ -77,14 +79,21 @@ def records_dir(common_dir: Path, script: str) -> Path:
     return common_dir / RUNNING_SUBDIR / script
 
 
-def record_path(common_dir: Path, script: str, worktree: Path) -> Path:
-    return records_dir(common_dir, script) / worktree.name
+def _instance_name(worktree: Path, pid: int) -> str:
+    """What one instance is called on disk: the worktree it runs in and the
+    pid of the `wf run` that owns it, since several instances of a script
+    may share a worktree."""
+    return f"{worktree.name}.{pid}"
 
 
-def log_path(common_dir: Path, script: str, worktree: Path) -> Path:
-    """Where a `background` run's output goes; overwritten by the next run
-    and kept afterwards, so a crash can be read up on."""
-    return common_dir / LOGS_SUBDIR / script / f"{worktree.name}.log"
+def record_path(common_dir: Path, script: str, worktree: Path, pid: int) -> Path:
+    return records_dir(common_dir, script) / _instance_name(worktree, pid)
+
+
+def log_path(common_dir: Path, script: str, worktree: Path, pid: int) -> Path:
+    """Where a `background` instance's output goes; kept after it ends, so
+    a crash can be read up on, until `prune` clears it away."""
+    return common_dir / LOGS_SUBDIR / script / f"{_instance_name(worktree, pid)}.log"
 
 
 def write_record(path: Path, record: JobRecord) -> None:
@@ -120,6 +129,30 @@ def jobs_for(common_dir: Path, script: str) -> list[Job]:
     return jobs
 
 
+def prune(common_dir: Path, script: str, worktree: Path) -> None:
+    """Forget what the script's dead instances left behind in this
+    worktree: their stale records, and the logs of every instance no
+    longer recorded. The live ones keep both."""
+    live = set()
+    for job in jobs_for(common_dir, script):
+        if Path(job.record.worktree) != worktree:
+            continue
+        if classify(job.record) is JobState.STALE:
+            job.path.unlink(missing_ok=True)
+        else:
+            live.add(job.path.name)
+    log_dir = common_dir / LOGS_SUBDIR / script
+    if not log_dir.is_dir():
+        return
+    prefix = f"{worktree.name}."
+    for path in log_dir.iterdir():
+        stem = path.stem  # "<worktree>.<pid>" for one of this worktree's instances
+        if path.suffix != ".log" or not stem.startswith(prefix):
+            continue
+        if stem[len(prefix) :].isdigit() and stem not in live:
+            path.unlink(missing_ok=True)
+
+
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -147,19 +180,20 @@ def classify(record: JobRecord) -> JobState:
 
 def running_scripts(common_dir: Path) -> dict[Path, list[str]]:
     """Which scripts are running where: worktree path → script names,
-    sorted. A record whose processes are gone (STALE) does not count; it is
-    left on disk for its owner or `wf stop` to clean up.
+    sorted, each name once however many instances of it run there. A record
+    whose processes are gone (STALE) does not count; it is left on disk for
+    its owner or `wf stop` to clean up.
     """
     directory = common_dir / RUNNING_SUBDIR
     if not directory.is_dir():
         return {}
-    found: dict[Path, list[str]] = {}
+    found: dict[Path, set[str]] = {}
     for script_dir in sorted(directory.iterdir()):
         if not script_dir.is_dir():
             continue
         for job in jobs_for(common_dir, script_dir.name):
             if classify(job.record) is not JobState.STALE:
-                found.setdefault(Path(job.record.worktree), []).append(script_dir.name)
+                found.setdefault(Path(job.record.worktree), set()).add(script_dir.name)
     return {worktree: sorted(names) for worktree, names in found.items()}
 
 

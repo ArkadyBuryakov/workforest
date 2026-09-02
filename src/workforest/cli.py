@@ -22,7 +22,7 @@ SUBCOMMAND_HELP: dict[str, str] = {
     "delete": "delete worktree(s)",
     "checkout": "delete a worktree and check its branch out in main",
     "run": "run a named script from the merged config",
-    "stop": "stop a running script (this worktree's instance, or --all)",
+    "stop": "stop a running script (this worktree's instances, or --all)",
     "tui": "interactive mode (requires fzf)",
     "init": "write a commented .workforest.yaml starter",
     "config": "show the merged configuration and its sources",
@@ -216,7 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("stop", help=SUBCOMMAND_HELP["stop"])
     p.add_argument("script", metavar="SCRIPT")
     p.add_argument(
-        "--all", action="store_true", help="every worktree's instance, not just this one's"
+        "--all", action="store_true", help="every worktree's instances, not just this one's"
     )
     p.set_defaults(func=_handle_stop)
 

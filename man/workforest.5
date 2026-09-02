@@ -191,8 +191,9 @@ Members are named, never written inline, and keep their own settings and
 records: a group may name another group (a cycle is a configuration
 error),
 .B workforest stop
-on a member stops it out from under a running group, and a member
-already running in the worktree fails its step.
+on a member stops it out from under a running group, and a member that is
+already running elsewhere is started again unless it is
+.BR exclusive .
 .TP
 .B background
 Detach by default, as
@@ -211,19 +212,23 @@ variables.
 Its failure is a warning.
 .TP
 .B exclusive
-At most one instance per project: starting the script stops the running
+At most one instance per project: starting the script stops every running
 instance in any worktree (this one included) with SIGTERM, then SIGKILL
 after
 .B stop_timeout
-seconds, waits for that instance's cleanup to finish, and only then
-starts.
+seconds, waits for their cleanup to finish, and only then starts.
+Without it any number of instances may run at once, in one worktree or
+across several, each with a record, a log, and a
+.B cleanup
+of its own.
 The stopped instance's
 .B workforest run
 reports who preempted it and exits 143.
 Running instances are recorded under
 .I .git/workforest/running/
-in the main checkout; a record is verified (pid, process group, boot)
-before anything is signalled, so a crash, a reboot, or a killed
+in the main checkout, one file per instance; a record is verified (pid,
+process group, boot) before anything is signalled, so a crash, a reboot,
+or a killed
 .B workforest
 leaves nothing to tidy by hand.
 A command still running after its

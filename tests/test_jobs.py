@@ -72,13 +72,14 @@ def make_record(pgid: int, *, owner_pid: int | None = None, **overrides: object)
 class TestRecords:
     def test_round_trip_and_layout(self, tmp_path: Path) -> None:
         record = make_record(1234, stopped_by="other")
-        path = jobs.record_path(tmp_path, "dev", Path("/x/worktrees/api/feat"))
-        assert path == tmp_path / "workforest" / "running" / "dev" / "feat"
+        worktree = Path("/x/worktrees/api/feat")
+        path = jobs.record_path(tmp_path, "dev", worktree, 4321)
+        assert path == tmp_path / "workforest" / "running" / "dev" / "feat.4321"
         jobs.write_record(path, record)
         assert jobs.read_record(path) == record
         assert not list(path.parent.glob(".*"))  # no temp file left behind
-        assert jobs.log_path(tmp_path, "dev", Path("/x/worktrees/api/feat")) == (
-            tmp_path / "workforest" / "logs" / "dev" / "feat.log"
+        assert jobs.log_path(tmp_path, "dev", worktree, 4321) == (
+            tmp_path / "workforest" / "logs" / "dev" / "feat.4321.log"
         )
 
     def test_missing_and_corrupt(self, tmp_path: Path) -> None:
@@ -96,14 +97,46 @@ class TestRecords:
         assert jobs.jobs_for(tmp_path, "dev") == []
         a = make_record(1)
         b = make_record(2)
-        jobs.write_record(jobs.record_path(tmp_path, "dev", Path("/w/feat-a")), a)
-        jobs.write_record(jobs.record_path(tmp_path, "dev", Path("/w/feat-b")), b)
-        (jobs.records_dir(tmp_path, "dev") / ".feat-c.tmp").write_text("partial")
-        (jobs.records_dir(tmp_path, "dev") / "feat-d").write_text("garbage")
+        jobs.write_record(jobs.record_path(tmp_path, "dev", Path("/w/feat-a"), 1), a)
+        jobs.write_record(jobs.record_path(tmp_path, "dev", Path("/w/feat-b"), 2), b)
+        (jobs.records_dir(tmp_path, "dev") / ".feat-c.1.tmp").write_text("partial")
+        (jobs.records_dir(tmp_path, "dev") / "feat-d.4").write_text("garbage")
         found = jobs.jobs_for(tmp_path, "dev")
         assert [job.record for job in found] == [a, b]
-        assert [job.path.name for job in found] == ["feat-a", "feat-b"]
+        assert [job.path.name for job in found] == ["feat-a.1", "feat-b.2"]
         assert jobs.jobs_for(tmp_path, "other") == []
+
+    def test_prune_keeps_live_instances_and_other_worktrees(
+        self, tmp_path: Path, sleeper: Callable[[str], subprocess.Popen[bytes]]
+    ) -> None:
+        worktree = Path("/w/feat")
+        live = make_record(sleeper("sleep 30").pid, worktree=str(worktree))
+        dead = make_record(_reaped_pid(), worktree=str(worktree))
+        elsewhere = make_record(_reaped_pid(), worktree="/w/other")
+        for record, name in ((live, "feat.1"), (dead, "feat.2"), (elsewhere, "other.3")):
+            jobs.write_record(jobs.records_dir(tmp_path, "dev") / name, record)
+        log_dir = tmp_path / "workforest" / "logs" / "dev"
+        log_dir.mkdir(parents=True)
+        for name in ("feat.1.log", "feat.2.log", "feat.notapid.log", "other.3.log"):
+            (log_dir / name).write_text("output")
+
+        jobs.prune(tmp_path, "dev", worktree)
+
+        assert sorted(p.name for p in jobs.records_dir(tmp_path, "dev").iterdir()) == [
+            "feat.1",
+            "other.3",
+        ]
+        # The dead instance's log goes with its record; the live one's, a
+        # file that is not an instance log, and another worktree's stay.
+        assert sorted(p.name for p in log_dir.iterdir()) == [
+            "feat.1.log",
+            "feat.notapid.log",
+            "other.3.log",
+        ]
+
+    def test_prune_without_records_or_logs(self, tmp_path: Path) -> None:
+        jobs.prune(tmp_path, "dev", Path("/w/feat"))  # nothing on disk yet
+        assert not (tmp_path / "workforest").exists()
 
     def test_boot_id_is_stable(self) -> None:
         assert jobs.boot_id() == jobs.boot_id()
@@ -113,15 +146,22 @@ class TestRecords:
     ) -> None:
         assert jobs.running_scripts(tmp_path) == {}
         live = sleeper("sleep 30").pid
-        for script, worktree in (("dev", "/w/feat"), ("build", "/w/feat"), ("dev", "/w/other")):
+        instances = (
+            ("dev", "/w/feat", 1),
+            ("dev", "/w/feat", 2),  # a second instance adds no second name
+            ("build", "/w/feat", 3),
+            ("dev", "/w/other", 4),
+        )
+        for script, worktree, owner in instances:
             jobs.write_record(
-                jobs.record_path(tmp_path, script, Path(worktree)),
+                jobs.record_path(tmp_path, script, Path(worktree), owner),
                 make_record(live, script=script, worktree=worktree),
             )
         # A dead group: a record nobody cleaned up, which counts for nothing.
+        dead = _reaped_pid()
         jobs.write_record(
-            jobs.record_path(tmp_path, "stale", Path("/w/feat")),
-            make_record(_reaped_pid(), script="stale", worktree="/w/feat"),
+            jobs.record_path(tmp_path, "stale", Path("/w/feat"), dead),
+            make_record(dead, script="stale", worktree="/w/feat"),
         )
         (tmp_path / jobs.RUNNING_SUBDIR / "not-a-dir").write_text("")
         assert jobs.running_scripts(tmp_path) == {
