@@ -49,13 +49,15 @@ class ScriptSpec:
     """A `scripts` entry: what `wf run NAME` runs — a shell command, or a
     group of other entries by name, `bulk` (in parallel) or `pipeline` (in
     order); exactly one of the three — where, whether only one instance may
-    run per project, and what to run once it has ended."""
+    run per project, whether it is offered by name, and what to run once it
+    has ended."""
 
     command: str | None = None
     bulk: tuple[str, ...] | None = None  # members run at once; done when all are
     pipeline: tuple[str, ...] | None = None  # members run in order; stops at the first failure
     background: bool = False  # detach, with output to a log file, instead of holding the terminal
     exclusive: bool = False  # starting it stops every running instance in the project
+    hidden: bool = False  # left out of completions and the editor lists; still runs by name
     cleanup: str | None = None  # runs after the command ends, however it ended
     stop_timeout: float | None = None  # seconds between SIGTERM and SIGKILL; None: the global one
 
@@ -150,6 +152,8 @@ def _entry_data(spec: ConfigEntry) -> str | dict[str, Any]:
             data["background"] = True
         if spec.exclusive:
             data["exclusive"] = True
+        if spec.hidden:
+            data["hidden"] = True
         if spec.cleanup is not None:
             data["cleanup"] = spec.cleanup
         if spec.stop_timeout is not None:
@@ -255,10 +259,9 @@ def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: 
             raise ConfigError(f"{where}: {field_name!r} must be a non-empty list of script names")
     if "wrap" in entry and not isinstance(entry["wrap"], str | None):
         raise ConfigError(f"{where}: 'wrap' must be a string")
-    if "background" in entry and not isinstance(entry["background"], bool):
-        raise ConfigError(f"{where}: 'background' must be true or false")
-    if "exclusive" in entry and not isinstance(entry["exclusive"], bool):
-        raise ConfigError(f"{where}: 'exclusive' must be true or false")
+    for field_name in ("background", "exclusive", "hidden"):
+        if field_name in entry and not isinstance(entry[field_name], bool):
+            raise ConfigError(f"{where}: {field_name!r} must be true or false")
     if "cleanup" in entry and (
         not isinstance(entry["cleanup"], str) or not entry["cleanup"].strip()
     ):

@@ -276,7 +276,9 @@ group (cycles are a config error):
 
 ```yaml
 scripts:
-  migrate: npm run db:migrate
+  migrate:
+    command: npm run db:migrate
+    hidden: true                  # a group member only: left out of the lists
   dev:
     bulk: [backend, frontend]     # both at once; done when both have ended
   fresh:
@@ -291,7 +293,10 @@ takes no extra arguments; its `stop_timeout` defaults to the longest of
 its members'. Members stay individually visible: `wf stop MEMBER` stops
 that member out from under a running group, and a member that is already
 running elsewhere is started again — `exclusive` is what makes a member
-stop the running one instead.
+stop the running one instead. A member that is only ever meant to run as
+part of a group can set `hidden: true`: it is then left out of shell
+completion and the editor plugins' script lists, while `wf run` and `wf
+stop` still take its name.
 
 A pipeline's steps run like consecutive `wf run`s, each with the
 terminal; a `background` member is started and left running while the
@@ -336,7 +341,9 @@ setup_scripts:
   - npm install --prefer-offline
 scripts:
   test: npm test
-  migrate: npm run db:migrate
+  migrate:
+    command: npm run db:migrate
+    hidden: true
   frontend:
     command: cd frontend && npm run dev
     exclusive: true

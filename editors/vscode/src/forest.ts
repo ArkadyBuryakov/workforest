@@ -121,7 +121,7 @@ export interface ScriptInfo {
   exclusive: boolean;
 }
 
-/** The `scripts` map of `workforest config --json`, sorted by name. */
+/** The `scripts` map of `workforest config --json`, sorted by name; `hidden` entries are left out. */
 export function parseScripts(configJson: string): ScriptInfo[] {
   const data: unknown = JSON.parse(configJson);
   if (!isRecord(data) || !isRecord(data.config)) {
@@ -133,7 +133,12 @@ export function parseScripts(configJson: string): ScriptInfo[] {
   }
   return Object.keys(scripts)
     .sort()
+    .filter((name) => !isHidden(scripts[name]))
     .map((name) => scriptInfo(name, scripts[name]));
+}
+
+function isHidden(entry: unknown): boolean {
+  return isRecord(entry) && entry.hidden === true;
 }
 
 function scriptInfo(name: string, entry: unknown): ScriptInfo {

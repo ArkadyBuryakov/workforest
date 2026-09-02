@@ -268,11 +268,12 @@ class TestCompleteBackend:
     def test_scripts_and_openers(self, repo: Repo, run_cli: Run) -> None:
         repo.write_project_config(
             "scripts:\n  migrate: 'true'\n  test: 'true'\n"
+            "  step: {command: 'true', hidden: true}\n"
             "openers:\n  edit: '$EDITOR \"$WF_TARGET\"'\n  win: {from: edit, wrap: kitty}\n"
             "wrappers:\n  kitty: 'kitty $SHELL -c \"$WF_COMMAND\"'\n"
         )
         result = run_cli("--complete", "scripts", cwd=repo.path)
-        assert result.out.splitlines() == ["migrate", "test"]
+        assert result.out.splitlines() == ["migrate", "test"]  # `step` is hidden
         # wrappers are not openers; descriptions carry the resolved command
         result = run_cli("--complete", "openers", cwd=repo.path)
         assert result.out.splitlines() == [

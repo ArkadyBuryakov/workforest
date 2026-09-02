@@ -29,7 +29,7 @@ def _complete(topic: str) -> list[str]:
         case "worktrees":
             return _worktrees()
         case "scripts":
-            return sorted(_config().scripts)
+            return sorted(name for name, spec in _config().scripts.items() if not spec.hidden)
         case "openers":
             return _openers()
         case "claude-sessions":
