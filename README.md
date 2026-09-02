@@ -411,9 +411,9 @@ cd editors/idea
 ```
 
 then *Settings | Plugins | ⚙ | Install Plugin from Disk* — or unzip it into
-the IDE's plugins directory, which is all that dialog does; the plugin's
-README has that as `wf run` scripts. `./gradlew runIde` starts a sandboxed
-IDE with the plugin for development.
+the IDE's plugins directory, which is all that dialog does and what `make
+idea` (see Development) does from the repository root. `./gradlew runIde`
+starts a sandboxed IDE with the plugin for development.
 `editors/idea/README.md` is the plugin's own reference (features, settings,
 the `.idea/` carry-over recipe, troubleshooting).
 
@@ -443,6 +443,8 @@ npm run check        # compile, unit tests, package → workforest-*.vsix
 code --install-extension workforest-*.vsix
 ```
 
+`make vscode` (see Development) does the same from the repository root.
+
 `editors/vscode/README.md` is the extension's own reference (features,
 settings, troubleshooting).
 
@@ -453,7 +455,16 @@ uv sync           # venv + dev dependencies (uv.lock)
 make check        # ruff + mypy --strict + pytest (coverage gate ≥ 90%)
 make install      # install this checkout as a uv tool (~/.local/bin/workforest)
 make uninstall    # remove it again
+make vscode       # build the VS Code extension and install it into VS Code
+make idea         # build the JetBrains plugin and unpack it into the IDE
+make plugins      # both (`-build`, `-install`, `-uninstall` targets exist too)
 ```
+
+The two plugin targets need machine-specific paths: `IDEA_JAVA_HOME` (the JDK
+Gradle runs on; empty means `java` from the `PATH`) and `IDEA_PLUGINS` (the
+IDE's plugins directory, `~/.local/share/JetBrains/IdeaIC2025.2` by default).
+Set them on the command line, or keep them in an untracked `Makefile.local`,
+which the `Makefile` includes when it exists.
 
 Man pages are hand-written roff under `man/` (`workforest.1` and
 `workforest.5`, plus `wf.1`/`wf.5` links to them); `tests/test_man.py` fails when they drift from

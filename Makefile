@@ -1,6 +1,19 @@
 # Dev targets wrap `uv run`; `uv sync` is the only setup step.
+# Machine-specific overrides (IDEA_JAVA_HOME, IDEA_PLUGINS) go in an
+# untracked Makefile.local.
+-include Makefile.local
 
-.PHONY: check test lint type cov sync install uninstall
+# JetBrains plugin (editors/idea). Gradle runs on any JDK 17+ — an IDE's
+# bundled JBR does — and fetches the JDK 21 it compiles with itself; empty
+# means "whatever `java` is on the PATH". IDEA_PLUGINS is the IDE's plugins
+# directory, which is what "Install Plugin from Disk" unpacks into (a
+# vendor-customized IDE uses its own vendor and data-directory names).
+IDEA_JAVA_HOME ?= $(JAVA_HOME)
+IDEA_PLUGINS ?= $(HOME)/.local/share/JetBrains/IdeaIC2025.2
+
+.PHONY: check test lint type cov sync install uninstall logo \
+	vscode vscode-build vscode-install vscode-uninstall \
+	idea idea-build idea-install idea-uninstall plugins
 
 sync:
 	uv sync
@@ -21,6 +34,9 @@ cov:
 	uv run pytest --cov-report=html
 	@echo "open htmlcov/index.html"
 
+logo:
+	uv run ./assets/generate
+
 # Install the current checkout as a uv tool (~/.local/bin/workforest).
 # --reinstall so re-running picks up changes even without a version bump.
 install:
@@ -31,3 +47,40 @@ install:
 
 uninstall:
 	uv tool uninstall workforest
+
+# --- VS Code extension (editors/vscode) ---------------------------------
+
+# A fresh .vsix from this worktree.
+vscode-build:
+	cd editors/vscode && rm -f *.vsix && npm install --no-audit --no-fund && npm run package
+
+vscode-install:
+	@vsix=$$(ls -t editors/vscode/*.vsix 2>/dev/null | head -1); \
+	[ -n "$$vsix" ] || { echo "no .vsix — run 'make vscode-build' first" >&2; exit 1; }; \
+	code --install-extension "$$vsix" --force
+
+vscode-uninstall:
+	code --uninstall-extension ArkadyBuryakov.workforest
+
+vscode: vscode-build vscode-install
+
+# --- JetBrains plugin (editors/idea) ------------------------------------
+
+idea-build:
+	cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet buildPlugin
+
+# What "Install Plugin from Disk" does: unpack the zip into the plugins dir.
+idea-install:
+	@zip=$$(ls -t editors/idea/build/distributions/workforest-idea-*.zip 2>/dev/null | head -1); \
+	[ -n "$$zip" ] || { echo "no plugin zip — run 'make idea-build' first" >&2; exit 1; }; \
+	rm -rf "$(IDEA_PLUGINS)/workforest-idea"; \
+	unzip -qo "$$zip" -d "$(IDEA_PLUGINS)"; \
+	echo "installed $(IDEA_PLUGINS)/workforest-idea — restart the IDE to load it"
+
+idea-uninstall:
+	rm -rf "$(IDEA_PLUGINS)/workforest-idea"
+	@echo "removed — restart the IDE"
+
+idea: idea-build idea-install
+
+plugins: vscode idea

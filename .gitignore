@@ -31,3 +31,4 @@ editors/vscode/out/
 
 # Tooling config
 /.workforest.yaml
+/Makefile.local
