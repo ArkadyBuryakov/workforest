@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.ColoredTreeCellRenderer
@@ -23,6 +24,8 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.render.RenderingUtil
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.tree.TreeUtil
+import com.intellij.util.ui.update.Activatable
+import com.intellij.util.ui.update.UiNotifyConnector
 import java.awt.Component
 import java.awt.Graphics
 import java.awt.Point
@@ -186,7 +189,20 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         toolbar.targetComponent = this
         setToolbar(toolbar.component)
         setContent(scroll)
-        WorktreeService.getInstance(project).addListener({ show(it) }, this)
+        val service = WorktreeService.getInstance(project)
+        service.addListener({ show(it) }, this)
+        // The listing is polled only while this panel is on screen.
+        Disposer.register(
+            this,
+            UiNotifyConnector.installOn(
+                this,
+                object : Activatable {
+                    override fun showNotify() = service.startPolling()
+
+                    override fun hideNotify() = service.stopPolling()
+                },
+            ),
+        )
     }
 
     private fun userObject(path: TreePath?): Any? = (path?.lastPathComponent as? DefaultMutableTreeNode)?.userObject

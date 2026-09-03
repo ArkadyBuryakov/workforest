@@ -2,6 +2,8 @@ package pro.buryakov.workforest.idea
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationActivationListener
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceIfCreated
@@ -15,8 +17,11 @@ import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.Alarm
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.containers.ContainerUtil
 import java.nio.file.Path
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /** What the tool window and status bar show: the forest and the scripts, or why not. */
 data class ForestView(
@@ -48,6 +53,8 @@ class WorktreeService(private val project: Project) : Disposable {
 
     private val listeners = ContainerUtil.createLockFreeCopyOnWriteList<Listener>()
     private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
+    private val listing = AppExecutorUtil.createBoundedScheduledExecutorService("Workforest listing", 1)
+    private var poll: ScheduledFuture<*>? = null
     private var watchedMain: Path? = null
     private var lastConfigWarning = ""
 
@@ -92,29 +99,68 @@ class WorktreeService(private val project: Project) : Disposable {
 
             override fun run(indicator: ProgressIndicator) {
                 loaded = try {
-                    val forest = WorkforestCli.forest(root)
-                    val recency = WorkforestRecency.getInstance()
-                    ForestView(
-                        worktrees = Recency.order(listOf(forest.main) + forest.worktrees, recency::lastOpened, Recency::createdAt),
-                        scripts = WorkforestCli.scripts(root),
-                        error = null,
-                    )
+                    ForestView(order(WorkforestCli.forest(root)), WorkforestCli.scripts(root), null)
                 } catch (e: WorkforestException) {
                     ForestView(emptyList(), emptyList(), e)
                 }
             }
 
-            override fun onSuccess() {
-                view = loaded
-                loaded.main?.let { watch(it.path) }
-                val error = loaded.error
-                if (error is WorkforestException && error.isConfigError && error.message != lastConfigWarning) {
-                    lastConfigWarning = error.message.orEmpty()
-                    WorkforestNotifications.warning(project, error.message.orEmpty())
-                }
-                listeners.forEach { it.changed(loaded) }
-            }
+            override fun onSuccess() = publish(loaded)
         }.queue()
+    }
+
+    /** The main checkout first, then the worktrees by recency. */
+    private fun order(forest: Forest): List<Worktree> {
+        val recency = WorkforestRecency.getInstance()
+        return Recency.order(listOf(forest.main) + forest.worktrees, recency::lastOpened, Recency::createdAt)
+    }
+
+    /** A new listing becomes the view, on the EDT. */
+    private fun publish(loaded: ForestView) {
+        view = loaded
+        loaded.main?.let { watch(it.path) }
+        val error = loaded.error
+        if (error is WorkforestException && error.isConfigError && error.message != lastConfigWarning) {
+            lastConfigWarning = error.message.orEmpty()
+            WorkforestNotifications.warning(project, error.message.orEmpty())
+        }
+        listeners.forEach { it.changed(loaded) }
+    }
+
+    /**
+     * Run the listing again every second while the tool window is on
+     * screen. Nothing tells the IDE that a script started or ended: the
+     * records live under the common git dir, which is outside the project
+     * for a worktree, and the VFS turns an outside change into an event
+     * only while a refresh session runs — one the IDE starts when its
+     * window comes back to the front. So the running badges (and the
+     * dirty marks, which no file event can carry either) need `list
+     * --json` itself. `config --json` stays out of the poll: the scripts
+     * change with the config files, and those the VFS does report.
+     */
+    @Synchronized
+    fun startPolling() {
+        if (poll == null) {
+            poll = listing.scheduleWithFixedDelay(::pollListing, POLL_MILLIS, POLL_MILLIS, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    @Synchronized
+    fun stopPolling() {
+        poll?.cancel(false)
+        poll = null
+    }
+
+    private fun pollListing() {
+        val root = root ?: return
+        val shown = view
+        val loaded = try {
+            ForestView(order(WorkforestCli.forest(root)), shown.scripts, null)
+        } catch (e: WorkforestException) {
+            ForestView(emptyList(), emptyList(), e)
+        }
+        if (loaded.worktrees == shown.worktrees && loaded.error?.message == shown.error?.message) return
+        ApplicationManager.getApplication().invokeLater({ publish(loaded) }, ModalityState.any(), project.disposed)
     }
 
     /**
@@ -131,9 +177,14 @@ class WorktreeService(private val project: Project) : Disposable {
         LocalFileSystem.getInstance().refreshAndFindFileByNioFile(gitDir)
     }
 
-    override fun dispose() {}
+    override fun dispose() {
+        stopPolling()
+        listing.shutdownNow()
+    }
 
     companion object {
+        private const val POLL_MILLIS = 1_000L
+
         fun getInstance(project: Project): WorktreeService = project.service()
 
         /**
