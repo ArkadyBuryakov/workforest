@@ -51,7 +51,7 @@ it) and only ask when this window is the main checkout.
 | Show Merged Configuration | `workforest config` in a read-only editor tab. |
 | Initialize Project Config | `workforest init`: scaffolds `.workforest.yaml` and opens it. |
 | Initialize Local Config | `workforest init --local`: scaffolds `.idea/.workforest.yaml`, the untracked per-developer override layer, and opens it. |
-| Refresh | re-reads the forest. It also refreshes when the window comes back to the front, when worktrees are added or removed from any terminal, and when a `.workforest.yaml` changes. |
+| Refresh | re-reads the forest. While the tool window is open it also re-reads it every second, so worktrees, running scripts, and uncommitted-change marks stay current wherever they changed; and it refreshes when the window comes back to the front, and when a `.workforest.yaml` changes. |
 
 **Status bar**: the worktree this window is in (`name (main)` for the main
 checkout; hover for branch and path); click it to open another. Hide it
@@ -214,9 +214,19 @@ found`), so for those, run the plugin.
   are off: a row too long for the tool window is cut there rather than
   popped out over the editor, where the buttons could not follow it. Fed
   by `WorktreeService`, which re-reads the forest after every action, on
-  window activation, and on VFS changes under the main checkout's
-  `.git/worktrees`, `.git/HEAD`, and the config files
-  (watched even when outside the project), and orders it with `Recency`
+  window activation, on VFS changes under the main checkout's
+  `.git/worktrees`, `.git/HEAD`, and the config files (watched even when
+  outside the project), and — while the panel is on screen, tracked with a
+  `UiNotifyConnector` — from a one-second `list --json` poll, which tells
+  the listeners only when the listing differs. The poll is what keeps the
+  running badges and the uncommitted-change marks live: the records live
+  under the common git dir, outside the project for a worktree, and the
+  VFS turns an outside change into an event only while a refresh session
+  runs — one the IDE starts when its window comes back to the front, which
+  is why without the poll a script started in the IDE's own terminal moved
+  no badge until the focus left and came back. `config --json` stays out of
+  the poll: the scripts change with the config files, which the VFS does
+  report. The forest is ordered with `Recency`
   (last opened in this IDE — recorded by `RecordProjectOpenActivity`, as
   `RecentProjectsManager` is internal API — else creation time).
 - `WorkforestStatusBar.kt` — the status-bar widget.
