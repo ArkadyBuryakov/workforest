@@ -11,6 +11,14 @@ name: Publish VS Code extension
 # without extension changes is a no-op. Needs the VSCE_PAT secret (a
 # Marketplace personal access token for the publisher in package.json);
 # without it the publish step is skipped.
+#
+# That token is an Azure DevOps *global* PAT ("All accessible organizations",
+# scope Marketplace/Manage) — the Marketplace accepts nothing narrower, and
+# global PATs are decommissioned on 2026-12-01. Before then this job has to
+# move to Microsoft Entra (`vsce publish --azure-credential`, a user-assigned
+# managed identity added as a member of the publisher) or to trusted
+# publishing (`vsce publish --oidc`, no secret at all) once that ships — it is
+# in vsce's main branch but not in a release as of 3.9.2.
 
 on:
   release:
@@ -18,33 +26,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The CLI each .vsix ships, one per platform.
   binaries:
-    # The CLI each .vsix ships, built on a runner of its own platform:
-    # PyInstaller freezes for the machine it runs on, it cannot cross-build.
-    strategy:
-      matrix:
-        include:
-          - target: linux-x64
-            os: ubuntu-latest
-          - target: linux-arm64
-            os: ubuntu-24.04-arm
-          - target: darwin-x64
-            os: macos-13 # the last x86_64 macOS runner image
-          - target: darwin-arm64
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-
-      - name: Build the standalone executable
-        run: packaging/binary/build.sh
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: workforest-binary-${{ matrix.target }}
-          path: dist/binary/workforest
+    uses: ./.github/workflows/binaries.yml
 
   publish:
     needs: binaries

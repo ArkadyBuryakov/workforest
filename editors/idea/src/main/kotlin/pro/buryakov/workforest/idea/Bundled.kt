@@ -22,3 +22,10 @@ fun bundledRelativePath(osName: String, arch: String): String? {
     }
     return "bin/$os-$cpu/workforest"
 }
+
+/**
+ * Windows, where the plugin is a dead end: workforest is a POSIX tool, so
+ * there is no executable to ship and none to install either. Every other
+ * platform without a bundled copy can still install the CLI itself.
+ */
+fun isUnsupportedOs(osName: String): Boolean = osName.startsWith("Windows", ignoreCase = true)

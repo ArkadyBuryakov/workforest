@@ -9,7 +9,8 @@ Your repo has one working directory; your AI agents want five.
 feature — and every agent — its own disposable git worktree. This
 extension puts the forest in VS Code: see it, create and open worktrees,
 run the project's scripts in them, and clean them up, without leaving the
-editor.
+editor. Linux and macOS only (x64 and arm64) — the `workforest` CLI it
+drives has no Windows build.
 
 Everything goes through the `workforest` command-line tool, so the
 extension and your shell agree on where worktrees live, which setup runs in

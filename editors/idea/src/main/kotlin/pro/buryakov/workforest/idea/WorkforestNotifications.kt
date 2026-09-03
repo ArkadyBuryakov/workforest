@@ -34,7 +34,7 @@ object WorkforestNotifications {
         val notification = group()
             .createNotification(error.message ?: error.toString(), NotificationType.ERROR)
             .setTitle("Workforest")
-        if (error is WorkforestNotFoundException) {
+        if (error is WorkforestNotFoundException && !error.unsupportedOs) {
             notification.addAction(
                 NotificationAction.createSimpleExpiring("Install Workforest") { BrowserUtil.browse(INSTALL_URL) },
             )

@@ -354,7 +354,9 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         emptyText.clear()
         when (error) {
             null -> emptyText.appendText("No worktrees")
-            is WorkforestNotFoundException -> {
+            is WorkforestNotFoundException -> if (error.unsupportedOs) {
+                emptyText.appendText("Workforest supports Linux and macOS only")
+            } else {
                 emptyText.appendText("workforest not found. ")
                 emptyText.appendText("Install Workforest", SimpleTextAttributes.LINK_ATTRIBUTES) {
                     BrowserUtil.browse(INSTALL_URL)
