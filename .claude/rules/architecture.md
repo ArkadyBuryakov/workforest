@@ -15,7 +15,8 @@
   string substitution.
 - The editor plugins ship the CLI they drive: `packaging/binary/build.sh`
   freezes the wheel into one self-contained executable (PyInstaller) per
-  platform, which CI puts in `editors/vscode/bin/workforest` (one per
+  platform, which `make vscode-build`/`make idea-build` (this machine's
+  platform) and CI (all four) put in `editors/vscode/bin/workforest` (one per
   platform-specific `.vsix`) and `editors/idea/bin/<os>-<arch>/workforest`
   (all of them in one plugin zip). Both trees build fine without it, and
   both run the bundled copy when there is one — it was built with the

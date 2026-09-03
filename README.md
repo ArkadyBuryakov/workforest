@@ -462,7 +462,9 @@ npm run check        # compile, unit tests, package → workforest-*.vsix
 code --install-extension workforest-*.vsix
 ```
 
-`make vscode` (see Development) does the same from the repository root.
+`make vscode` (see Development) does the same from the repository root, and
+additionally freezes this checkout's CLI into the `.vsix`, so the installed
+extension drives the `workforest` it was built with.
 
 `editors/vscode/README.md` is the extension's own reference (features,
 settings, troubleshooting).
@@ -474,6 +476,7 @@ uv sync           # venv + dev dependencies (uv.lock)
 make check        # ruff + mypy --strict + pytest (coverage gate ≥ 90%)
 make install      # install this checkout as a uv tool (~/.local/bin/workforest)
 make uninstall    # remove it again
+make binary       # freeze this checkout into dist/binary/workforest (PyInstaller)
 make vscode       # build the VS Code extension and install it into VS Code
 make idea         # build the JetBrains plugin and unpack it into the IDE
 make plugins      # both (`-build`, `-install`, `-uninstall` targets exist too)
