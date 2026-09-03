@@ -175,17 +175,19 @@ function openMode(): OpenMode {
 
 // --- error reporting -------------------------------------------------------
 
+const INSTALL_URL = 'https://github.com/ArkadyBuryakov/workforest#install';
+
 async function guarded(deps: Deps, action: () => Promise<void>): Promise<void> {
   try {
     await action();
   } catch (error) {
     if (error instanceof CliMissingError) {
       const choice = await vscode.window.showErrorMessage(
-        `Workforest: ${error.message}. Install workforest (see the README) or point the workforest.executable setting at it.`,
-        'Open Settings',
+        `Workforest: ${error.message}. This build of the extension carries no copy for your platform; install workforest to use it.`,
+        'Install Workforest',
       );
       if (choice) {
-        await vscode.commands.executeCommand('workbench.action.openSettings', 'workforest.executable');
+        await vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL));
       }
       await deps.model.refresh();
       return;

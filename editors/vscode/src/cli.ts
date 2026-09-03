@@ -57,29 +57,24 @@ export function expandHome(executable: string, home: string = os.homedir()): str
 const KNOWN_DIRS = ['~/.local/bin', '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'];
 
 /**
- * Where to look for the command, best first: an explicit setting wins,
- * then PATH, then the usual install locations, and last the copy bundled
- * in the extension. Pure — the caller decides which of these exists.
+ * Where to look for the command, best first: the copy bundled in this
+ * .vsix, which was built together with it and is therefore known to match,
+ * then PATH, then the usual install locations. Pure — the caller decides
+ * which of these exists.
  */
 export function executableCandidates(options: {
-  setting: string;
   path: string | undefined;
   home: string;
   bundled: string | undefined;
 }): string[] {
-  const setting = options.setting.trim();
-  if (setting) {
-    return [expandHome(setting, options.home)];
-  }
   const dirs = [
     ...(options.path ?? '').split(path.delimiter),
     ...KNOWN_DIRS.map((dir) => expandHome(dir, options.home)),
   ];
-  const candidates = dirs.filter((dir) => dir !== '').map((dir) => path.join(dir, 'workforest'));
-  if (options.bundled !== undefined) {
-    candidates.push(options.bundled);
-  }
-  return candidates;
+  return [
+    ...(options.bundled !== undefined ? [options.bundled] : []),
+    ...dirs.filter((dir) => dir !== '').map((dir) => path.join(dir, 'workforest')),
+  ];
 }
 
 function isRunnable(candidate: string): boolean {
@@ -113,7 +108,6 @@ export function bundledExecutable(extensionPath: string): string | undefined {
 
 export class Cli {
   constructor(
-    private readonly executableSetting: () => string,
     private readonly log: (line: string) => void,
     private readonly bundled: string | undefined = undefined,
   ) {}
@@ -121,18 +115,13 @@ export class Cli {
   /** The command to spawn: the first candidate that is there and runnable. */
   get executable(): string {
     const candidates = executableCandidates({
-      setting: this.executableSetting(),
       path: process.env.PATH,
       home: os.homedir(),
       bundled: this.bundled,
     });
-    const found = candidates.find(isRunnable);
-    if (found !== undefined) {
-      return found;
-    }
-    // Nothing runnable: spawn what the user configured, else the bare name,
-    // so the ENOENT -> CliMissingError names the command they expect.
-    return expandHome(this.executableSetting().trim() || 'workforest');
+    // Nothing runnable: spawn the bare name, so the ENOENT ->
+    // CliMissingError names the command the user expects.
+    return candidates.find(isRunnable) ?? 'workforest';
   }
 
   /**

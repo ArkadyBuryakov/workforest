@@ -21,20 +21,20 @@ a fresh one, and what `wf run NAME` does — all of it from the same
 - Linux or macOS, and git. The extension ships the `workforest` CLI it
   drives — a self-contained executable in `bin/`, one per platform — so
   nothing else has to be installed.
-- An installed `workforest` is preferred over the bundled one, and has to
-  be 0.6 or later: the view reads `workforest list --json`, which older
-  releases lack. Installing it (`uv tool install workforest`, `brew install
+- The bundled copy is the one the extension uses: it was built together
+  with this .vsix, so the two always match. Installing `workforest`
+  separately (`uv tool install workforest`, `brew install
   arkadyburyakov/tap/workforest`, `yay -S workforest`; see the [install
   instructions](https://github.com/ArkadyBuryakov/workforest#install)) is
-  what gets you `wf` in your shell, the man pages, and `wf open`'s `cd`.
+  what gets you `wf` in your shell, the man pages, and `wf open`'s `cd` —
+  and is required on a platform this build carries no executable for, where
+  the extension falls back to `PATH`, `~/.local/bin` (`uv tool`, pipx),
+  `/opt/homebrew/bin`, `/usr/local/bin`, and `/usr/bin`. An installed CLI
+  has to be 0.6 or later: the view reads `workforest list --json`, which
+  older releases lack.
 - The extension runs where the repository is (it is a workspace extension),
   so it works over Remote-SSH, containers, and WSL — the bundled CLI is the
   remote's, since the remote installs its own platform's build.
-
-The search order is the `workforest.executable` setting, then `PATH`, then
-`~/.local/bin` (`uv tool`, pipx), `/opt/homebrew/bin`, `/usr/local/bin`,
-`/usr/bin`, then the bundled copy. Set `workforest.executable` to a full
-path to pin a particular one.
 
 ## Features
 
@@ -85,7 +85,6 @@ click it to switch.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `workforest.executable` | (empty) | the command to run: a path (`~` expands), or empty to search `PATH`, the usual install directories, and the bundled copy |
 | `workforest.openIn` | `newWindow` | where created/opened worktrees open: `newWindow`, `currentWindow`, or `ask` |
 | `workforest.statusBar` | `true` | show the current worktree on the status bar |
 

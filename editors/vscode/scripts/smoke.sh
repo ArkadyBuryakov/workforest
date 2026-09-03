@@ -9,7 +9,7 @@ root=$(cd "$here/../.." && pwd)
 dir=${SMOKE_DIR:-$(mktemp -d)}
 export SMOKE_DIR="$dir"
 rm -rf "$dir/smoke" "$dir/worktrees" "$dir/user-data" "$dir/extensions"
-mkdir -p "$dir/smoke" "$dir/user-data/User" "$dir/extensions"
+mkdir -p "$dir/smoke" "$dir/user-data" "$dir/extensions"
 
 git -c init.defaultBranch=main init -q "$dir/smoke"
 cd "$dir/smoke"
@@ -20,11 +20,9 @@ git -c user.name=smoke -c user.email=smoke@example.invalid commit -q -m config
 "$root/.venv/bin/workforest" create feat --no-open --no-hooks
 touch "$dir/worktrees/smoke/feat/dirty.txt"
 
-printf '{"workforest.executable": "%s"}\n' "$root/.venv/bin/workforest" > "$dir/user-data/User/settings.json"
-
 cd "$here"
 : > "$dir/smoke.log"
-code --new-window --wait \
+PATH="$root/.venv/bin:$PATH" code --new-window --wait \
   --user-data-dir="$dir/user-data" --extensions-dir="$dir/extensions" \
   --disable-extensions --disable-gpu --disable-workspace-trust \
   --extensionDevelopmentPath="$here" --extensionTestsPath="$here/out/smoke" \

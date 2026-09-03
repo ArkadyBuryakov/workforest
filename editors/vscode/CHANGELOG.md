@@ -4,10 +4,11 @@
 
 The `workforest` CLI ships with the extension: the Marketplace package for
 each platform (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`)
-carries a self-contained executable, used when no `workforest` is
-installed. An installed one still wins. `workforest.executable` now
-defaults to empty (search) instead of `workforest`; a path set there is
-still used as given.
+carries a self-contained executable, and that is the one the extension
+runs — it was built with this .vsix, so the two always match. Only where
+the package has none (other platforms, the universal build) does it fall
+back to `PATH` and the usual install directories. The
+`workforest.executable` setting is gone with it.
 
 - Scripts show a running badge: light blue in this window's worktree,
   orange (with the count) in the others.

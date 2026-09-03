@@ -1,7 +1,7 @@
 // The `workforest` executables the plugin ships, one per platform under
 // bin/<os>-<arch>/ of the installed plugin directory (put there at package
 // time by packaging/binary/build.sh). Pure path arithmetic, unit-tested;
-// WorkforestCli decides whether the bundled copy is the one to run.
+// WorkforestCli runs this copy whenever it is there.
 package pro.buryakov.workforest.idea
 
 /**

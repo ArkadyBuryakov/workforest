@@ -1,12 +1,12 @@
 package pro.buryakov.workforest.idea
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.BrowserUtil
 import com.intellij.ide.DataManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DataSink
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
@@ -340,8 +340,8 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
             null -> emptyText.appendText("No worktrees")
             is WorkforestNotFoundException -> {
                 emptyText.appendText("workforest not found. ")
-                emptyText.appendText("Configure…", SimpleTextAttributes.LINK_ATTRIBUTES) {
-                    ShowSettingsUtil.getInstance().showSettingsDialog(project, WorkforestConfigurable::class.java)
+                emptyText.appendText("Install Workforest", SimpleTextAttributes.LINK_ATTRIBUTES) {
+                    BrowserUtil.browse(INSTALL_URL)
                 }
             }
             else -> emptyText.appendText(error.message ?: "Cannot list worktrees")
