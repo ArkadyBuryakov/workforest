@@ -10,7 +10,7 @@ export interface WorktreeInfo {
   branch: string | null; // null when detached
   path: string;
   dirty: boolean;
-  running: string[]; // the scripts running there, by name
+  running: Record<string, number>; // the scripts running there: name → live instances
 }
 
 export interface Forest {
@@ -23,8 +23,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+function isCountMap(value: unknown): value is Record<string, number> {
+  return isRecord(value) && Object.values(value).every((count) => typeof count === 'number');
 }
 
 function asWorktree(value: unknown, where: string): WorktreeInfo {
@@ -34,7 +34,7 @@ function asWorktree(value: unknown, where: string): WorktreeInfo {
     typeof value.path !== 'string' ||
     typeof value.dirty !== 'boolean' ||
     !(typeof value.branch === 'string' || value.branch === null) ||
-    !isStringArray(value.running)
+    !isCountMap(value.running)
   ) {
     throw new Error(`${where}: not a worktree entry`);
   }
@@ -170,51 +170,59 @@ export function scriptDescription(script: ScriptInfo): string {
   return marks.join(', ');
 }
 
-/** Where a script is running: in the worktree this window is in, and in
- * how many others. */
+/** How many instances of a script run in the worktree this window is in,
+ * how many in the other worktrees, and how many of those there are. */
 export interface RunningState {
-  here: boolean;
+  here: number;
   others: number;
+  otherWorktrees: number;
 }
 
 export function runningState(forest: Forest, script: string, herePath: string | undefined): RunningState {
-  let here = false;
+  let here = 0;
   let others = 0;
+  let otherWorktrees = 0;
   for (const info of [forest.main, ...forest.worktrees]) {
-    if (!info.running.includes(script)) {
+    const count = info.running[script] ?? 0;
+    if (count === 0) {
       continue;
     }
     if (info.path === herePath) {
-      here = true;
+      here += count;
     } else {
-      others += 1;
+      others += count;
+      otherWorktrees += 1;
     }
   }
-  return { here, others };
+  return { here, others, otherWorktrees };
 }
 
-/** The badge a running script wears: a dot, or the number of worktrees
- * when it runs in more than one of them; `here` picks the colour. */
-export function runningBadge(state: RunningState): { text: string; here: boolean } | undefined {
-  if (state.here) {
-    return { text: '●', here: true };
+/** What a running script's row says next to its name: every instance
+ * counted, here and elsewhere, however few. The row's coloured icon says
+ * the same thing again, but a colour alone cannot be counted. */
+export function runningNote(state: RunningState): string {
+  const parts = [];
+  if (state.here > 0) {
+    parts.push(`${state.here} here`);
   }
-  if (state.others === 0) {
-    return undefined;
+  if (state.others > 0) {
+    parts.push(`${state.others} elsewhere`);
   }
-  return { text: state.others > 1 ? String(state.others) : '●', here: false };
+  return parts.join(', ');
 }
 
 /** The same in words, for a row's description and a tooltip. */
 export function runningLabel(state: RunningState): string {
-  const { here, others } = state;
-  if (here) {
-    return others > 0 ? `running here, ${others} elsewhere` : 'running here';
+  const { here, others, otherWorktrees } = state;
+  if (here > 0) {
+    const mine = here > 1 ? `${here} running here` : 'running here';
+    return others > 0 ? `${mine}, ${others} elsewhere` : mine;
   }
-  if (others === 1) {
-    return 'running in another worktree';
+  if (others === 0) {
+    return '';
   }
-  return others > 1 ? `running in ${others} worktrees` : '';
+  const where = otherWorktrees > 1 ? `${otherWorktrees} worktrees` : 'another worktree';
+  return others > 1 ? `${others} running in ${where}` : `running in ${where}`;
 }
 
 /**

@@ -15,8 +15,8 @@ data class Worktree(
     val path: Path,
     val dirty: Boolean,
     val isMain: Boolean = false,
-    /** The scripts running there, by name. */
-    val running: List<String> = emptyList(),
+    /** The scripts running there: name → how many instances. */
+    val running: Map<String, Int> = emptyMap(),
 )
 
 /** `list --json`: the whole forest. */
@@ -58,7 +58,7 @@ object Protocol {
         branch = entry.get("branch")?.takeUnless { it.isJsonNull }?.asString,
         path = Path.of(entry.get("path").asString),
         dirty = entry.get("dirty").asBoolean,
-        running = entry.getAsJsonArray("running").map { it.asString },
+        running = entry.getAsJsonObject("running").entrySet().associate { (name, count) -> name to count.asInt },
     )
 
     /**

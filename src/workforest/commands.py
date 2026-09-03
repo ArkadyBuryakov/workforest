@@ -207,13 +207,15 @@ def _dirty_flags(worktrees: list[gitutil.Worktree]) -> list[bool]:
         return list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
 
 
-def _worktree_json(worktree: gitutil.Worktree, dirty: bool, running: list[str]) -> dict[str, Any]:
+def _worktree_json(
+    worktree: gitutil.Worktree, dirty: bool, running: dict[str, int]
+) -> dict[str, Any]:
     return {
         "name": worktree.name,
         "branch": worktree.branch,  # null when detached
         "path": str(worktree.path),
         "dirty": dirty,
-        "running": running,  # scripts running there, by name
+        "running": running,  # scripts running there: name → live instances
     }
 
 
@@ -226,10 +228,10 @@ def _list_json(ctx: Context) -> str:
     dirty = _dirty_flags([main, *worktrees])
     running = hooks.running_scripts(ctx.main)
     data = {
-        "main": _worktree_json(main, dirty[0], running.get(main.path, [])),
+        "main": _worktree_json(main, dirty[0], running.get(main.path, {})),
         "worktrees_dir": str(ctx.worktrees_dir),
         "worktrees": [
-            _worktree_json(w, d, running.get(w.path, []))
+            _worktree_json(w, d, running.get(w.path, {}))
             for w, d in zip(worktrees, dirty[1:], strict=True)
         ],
     }

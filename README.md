@@ -395,9 +395,9 @@ Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
 checkout, in the same `name`/`branch`/`path`/`dirty`/`running` shape as each
-entry of `worktrees`, `running` being the names of the scripts running
-there, each once however many instances of it run) and the resolved `worktrees_dir` — and is what the editor extensions
-read.
+entry of `worktrees`, `running` being an object mapping the name of each
+script running there to how many instances of it run) and the resolved
+`worktrees_dir` — and is what the editor extensions read.
 
 ## JetBrains IDE plugin
 
@@ -441,7 +441,7 @@ the `.idea/` carry-over recipe, troubleshooting).
 `editors/vscode/` holds a VS Code extension that puts the forest in the
 editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
 its header and two collapsible sections, Scripts (run/stop with one
-click, badged where they are running) and Worktrees (main checkout, then
+click, marked where they are running) and Worktrees (main checkout, then
 managed worktrees by recency, dirty markers, the worktree this window is
 in), commands to create, open, delete, and checkout worktrees (the last
 two on this window's worktree when invoked on no row), run and stop `scripts` in

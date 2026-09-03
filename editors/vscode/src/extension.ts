@@ -6,7 +6,7 @@ import { Cli, bundledExecutable } from './cli';
 import * as commands from './commands';
 import { ForestModel } from './model';
 import { Recency } from './recency';
-import { ForestTree, Node, ScriptDecorations } from './tree';
+import { ForestTree, Node } from './tree';
 
 /** What `activate` returns: the smoke test (src/smoke) reads the model. */
 export interface Api {
@@ -18,7 +18,6 @@ export function activate(context: vscode.ExtensionContext): Api {
   const cli = new Cli((line) => log.appendLine(line), bundledExecutable(context.extensionPath));
   const model = new ForestModel(cli, log, new Recency(context.globalState));
   const view = vscode.window.createTreeView('workforest.forest', { treeDataProvider: new ForestTree(model) });
-  const decorations = new ScriptDecorations(model);
   const deps: commands.Deps = { cli, model, log };
 
   const status = vscode.window.createStatusBarItem('workforest.current', vscode.StatusBarAlignment.Left, 50);
@@ -53,8 +52,6 @@ export function activate(context: vscode.ExtensionContext): Api {
     model,
     view,
     status,
-    decorations,
-    vscode.window.registerFileDecorationProvider(decorations),
     model.onDidChange(updateStatus),
     command('workforest.create', commands.create),
     command('workforest.open', commands.open),

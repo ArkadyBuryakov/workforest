@@ -10,8 +10,8 @@ import {
   parseCandidates,
   parseForest,
   parseScripts,
-  runningBadge,
   runningLabel,
+  runningNote,
   runningState,
   scriptDescription,
   shellQuote,
@@ -19,7 +19,7 @@ import {
 } from '../forest';
 
 const LIST_JSON = JSON.stringify({
-  main: { name: 'api', branch: 'main', path: '/home/u/dev/api', dirty: false, running: [] },
+  main: { name: 'api', branch: 'main', path: '/home/u/dev/api', dirty: false, running: {} },
   worktrees_dir: '/home/u/dev/worktrees/api',
   worktrees: [
     {
@@ -27,9 +27,9 @@ const LIST_JSON = JSON.stringify({
       branch: 'feature/one',
       path: '/home/u/dev/worktrees/api/one',
       dirty: true,
-      running: ['dev', 'test'],
+      running: { dev: 2, test: 1 },
     },
-    { name: 'two', branch: null, path: '/home/u/dev/worktrees/api/two', dirty: false, running: ['dev'] },
+    { name: 'two', branch: null, path: '/home/u/dev/worktrees/api/two', dirty: false, running: { dev: 1 } },
   ],
 });
 
@@ -61,29 +61,32 @@ test('parseForest rejects a foreign shape', () => {
   );
 });
 
-test('runningState splits this worktree from the others', () => {
+test('runningState counts the instances here and in the other worktrees', () => {
   const forest = parseForest(LIST_JSON);
   const here = '/home/u/dev/worktrees/api/one';
-  assert.deepEqual(runningState(forest, 'dev', here), { here: true, others: 1 });
-  assert.deepEqual(runningState(forest, 'test', here), { here: true, others: 0 });
-  assert.deepEqual(runningState(forest, 'dev', '/home/u/dev/api'), { here: false, others: 2 });
-  assert.deepEqual(runningState(forest, 'lint', here), { here: false, others: 0 });
+  assert.deepEqual(runningState(forest, 'dev', here), { here: 2, others: 1, otherWorktrees: 1 });
+  assert.deepEqual(runningState(forest, 'test', here), { here: 1, others: 0, otherWorktrees: 0 });
+  assert.deepEqual(runningState(forest, 'dev', '/home/u/dev/api'), { here: 0, others: 3, otherWorktrees: 2 });
+  assert.deepEqual(runningState(forest, 'lint', here), { here: 0, others: 0, otherWorktrees: 0 });
 });
 
-test('runningBadge is blue here, orange elsewhere, counted past one', () => {
-  assert.deepEqual(runningBadge({ here: true, others: 0 }), { text: '●', here: true });
-  assert.deepEqual(runningBadge({ here: true, others: 3 }), { text: '●', here: true });
-  assert.deepEqual(runningBadge({ here: false, others: 1 }), { text: '●', here: false });
-  assert.deepEqual(runningBadge({ here: false, others: 3 }), { text: '3', here: false });
-  assert.equal(runningBadge({ here: false, others: 0 }), undefined);
+test('runningNote counts every instance, however few', () => {
+  assert.equal(runningNote({ here: 1, others: 0, otherWorktrees: 0 }), '1 here');
+  assert.equal(runningNote({ here: 3, others: 0, otherWorktrees: 0 }), '3 here');
+  assert.equal(runningNote({ here: 1, others: 2, otherWorktrees: 2 }), '1 here, 2 elsewhere');
+  assert.equal(runningNote({ here: 3, others: 2, otherWorktrees: 1 }), '3 here, 2 elsewhere');
+  assert.equal(runningNote({ here: 0, others: 1, otherWorktrees: 1 }), '1 elsewhere');
+  assert.equal(runningNote({ here: 0, others: 0, otherWorktrees: 0 }), '');
 });
 
-test('runningLabel says where in words', () => {
-  assert.equal(runningLabel({ here: true, others: 0 }), 'running here');
-  assert.equal(runningLabel({ here: true, others: 2 }), 'running here, 2 elsewhere');
-  assert.equal(runningLabel({ here: false, others: 1 }), 'running in another worktree');
-  assert.equal(runningLabel({ here: false, others: 3 }), 'running in 3 worktrees');
-  assert.equal(runningLabel({ here: false, others: 0 }), '');
+test('runningLabel says how many and where in words', () => {
+  assert.equal(runningLabel({ here: 1, others: 0, otherWorktrees: 0 }), 'running here');
+  assert.equal(runningLabel({ here: 3, others: 0, otherWorktrees: 0 }), '3 running here');
+  assert.equal(runningLabel({ here: 1, others: 2, otherWorktrees: 2 }), 'running here, 2 elsewhere');
+  assert.equal(runningLabel({ here: 0, others: 1, otherWorktrees: 1 }), 'running in another worktree');
+  assert.equal(runningLabel({ here: 0, others: 2, otherWorktrees: 1 }), '2 running in another worktree');
+  assert.equal(runningLabel({ here: 0, others: 3, otherWorktrees: 3 }), '3 running in 3 worktrees');
+  assert.equal(runningLabel({ here: 0, others: 0, otherWorktrees: 0 }), '');
 });
 
 test('locate finds main and worktrees by path', () => {

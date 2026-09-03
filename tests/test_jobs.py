@@ -148,7 +148,7 @@ class TestRecords:
         live = sleeper("sleep 30").pid
         instances = (
             ("dev", "/w/feat", 1),
-            ("dev", "/w/feat", 2),  # a second instance adds no second name
+            ("dev", "/w/feat", 2),  # a second instance counts
             ("build", "/w/feat", 3),
             ("dev", "/w/other", 4),
         )
@@ -165,8 +165,8 @@ class TestRecords:
         )
         (tmp_path / jobs.RUNNING_SUBDIR / "not-a-dir").write_text("")
         assert jobs.running_scripts(tmp_path) == {
-            Path("/w/feat"): ["build", "dev"],
-            Path("/w/other"): ["dev"],
+            Path("/w/feat"): {"build": 1, "dev": 2},
+            Path("/w/other"): {"dev": 1},
         }
 
 

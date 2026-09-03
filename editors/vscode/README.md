@@ -49,9 +49,11 @@ it, two collapsible sections:
 - **Scripts**: the `scripts` of this window's repository, with their
   command in the tooltip. ▶ on a row runs it in this window's worktree
   (`workforest run NAME` in a new integrated terminal), ■ stops it. A
-  running script wears a badge: light blue `●` when it runs in this
-  window's worktree, orange — the count of worktrees once there are
-  several — when it runs in others. The section follows
+  running script's icon turns light blue while it runs in this window's
+  worktree and orange while it runs only in others, with every instance
+  counted next to the name (`1 here`, `2 here, 3 elsewhere`) and spelled
+  out in the tooltip. The marks sit at the name, never at the buttons, so ▶ and ■
+  stay put as a script starts or stops. The section follows
   `.workforest.yaml` edits and the running scripts of every worktree.
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened first (worktrees this VS Code has never opened
