@@ -1,5 +1,6 @@
 package pro.buryakov.workforest.idea
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -8,7 +9,6 @@ import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.UnknownFileType
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -36,9 +36,7 @@ object WorkforestNotifications {
             .setTitle("Workforest")
         if (error is WorkforestNotFoundException) {
             notification.addAction(
-                NotificationAction.createSimpleExpiring("Settings…") {
-                    ShowSettingsUtil.getInstance().showSettingsDialog(project, WorkforestConfigurable::class.java)
-                },
+                NotificationAction.createSimpleExpiring("Install Workforest") { BrowserUtil.browse(INSTALL_URL) },
             )
         } else if (error is WorkforestException && error.stderr.isNotBlank() && project != null) {
             // The whole stderr — a failing setup script says more than its last line.

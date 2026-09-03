@@ -17,11 +17,12 @@
   freezes the wheel into one self-contained executable (PyInstaller) per
   platform, which CI puts in `editors/vscode/bin/workforest` (one per
   platform-specific `.vsix`) and `editors/idea/bin/<os>-<arch>/workforest`
-  (all of them in one plugin zip). Both trees build fine without it and
-  both prefer an installed `workforest`: the bundled copy is the last
-  candidate after the setting, `PATH`, and the usual install directories.
-  Neither client may add a second way to obtain the CLI — no downloading,
-  no installing on the user's behalf.
+  (all of them in one plugin zip). Both trees build fine without it, and
+  both run the bundled copy when there is one — it was built with the
+  client, so the two always match; only where the package carries none do
+  they fall back to `PATH` and the usual install directories. Neither
+  client offers a setting for the path, and neither may add a second way to
+  obtain the CLI — no downloading, no installing on the user's behalf.
 - `editors/vscode/` (the VS Code extension) is a thin client: it only ever
   spawns `workforest` — never git — and reads its machine output
   (`list --json`, `config --json`, `--complete` lines). Terminal prompts are

@@ -15,11 +15,7 @@ export interface Api {
 
 export function activate(context: vscode.ExtensionContext): Api {
   const log = vscode.window.createOutputChannel('Workforest');
-  const cli = new Cli(
-    () => vscode.workspace.getConfiguration('workforest').get<string>('executable', ''),
-    (line) => log.appendLine(line),
-    bundledExecutable(context.extensionPath),
-  );
+  const cli = new Cli((line) => log.appendLine(line), bundledExecutable(context.extensionPath));
   const model = new ForestModel(cli, log, new Recency(context.globalState));
   const view = vscode.window.createTreeView('workforest.forest', { treeDataProvider: new ForestTree(model) });
   const decorations = new ScriptDecorations(model);
@@ -84,9 +80,7 @@ export function activate(context: vscode.ExtensionContext): Api {
       }
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('workforest.executable')) {
-        void model.refresh();
-      } else if (event.affectsConfiguration('workforest.statusBar')) {
+      if (event.affectsConfiguration('workforest.statusBar')) {
         updateStatus();
       }
     }),

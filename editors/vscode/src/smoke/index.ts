@@ -1,8 +1,8 @@
 /**
  * Smoke test, run inside a real VS Code by scripts/smoke.sh
  * (`code --extensionTestsPath=out/smoke`): the workspace is a scratch
- * repository with one worktree, `workforest.executable` points at this
- * checkout's CLI. Asserts the forest loads, the view's commands run, and
+ * repository with one worktree, and this checkout's CLI is first on PATH.
+ * Asserts the forest loads, the view's commands run, and
  * `Show Merged Configuration` produces a document. Throwing fails the run.
  */
 

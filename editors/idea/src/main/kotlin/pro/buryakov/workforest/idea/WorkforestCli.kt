@@ -1,8 +1,8 @@
 // Runs the workforest CLI. The only place a process is spawned; the
-// executable comes from Settings | Tools | Workforest, else PATH, else the
-// places `uv tool`, pipx, and Homebrew put it, else the copy the plugin
-// ships for this platform. Never git directly: the CLI owns the forest,
-// the plugin only drives it.
+// executable is the copy the plugin ships for this platform — built with
+// the plugin, so the two always match — else PATH, else the places `uv
+// tool`, pipx, and Homebrew put it. Never git directly: the CLI owns the
+// forest, the plugin only drives it.
 package pro.buryakov.workforest.idea
 
 import com.intellij.execution.ExecutionException
@@ -26,8 +26,11 @@ open class WorkforestException(message: String, val exitCode: Int = -1, val stde
     val isConfigError: Boolean get() = exitCode == 4
 }
 
+/** Where to send someone whose platform this build ships no executable for. */
+const val INSTALL_URL = "https://github.com/ArkadyBuryakov/workforest#install"
+
 class WorkforestNotFoundException : WorkforestException(
-    "workforest executable not found: install workforest, or set its path in Settings | Tools | Workforest",
+    "workforest executable not found: this build of the plugin carries no copy for your platform, so install workforest",
 )
 
 object WorkforestCli {
@@ -43,16 +46,14 @@ object WorkforestCli {
     )
 
     fun executable(): Path {
-        val configured = WorkforestSettings.getInstance().executable
-        if (!configured.isNullOrBlank()) return Path.of(expandHome(configured))
+        bundled()?.let { return it }
         PathEnvironmentVariableUtil.findInPath("workforest")?.let { return it.toPath() }
-        fallbackLocations.firstOrNull { Files.isExecutable(it) }?.let { return it }
-        return bundled() ?: throw WorkforestNotFoundException()
+        return fallbackLocations.firstOrNull { Files.isExecutable(it) } ?: throw WorkforestNotFoundException()
     }
 
     /**
-     * The executable shipped inside the plugin, for people who never
-     * installed the CLI. Null when this build carries none for the
+     * The executable shipped inside the plugin: the one to run, since it
+     * was built with the plugin. Null when this build carries none for the
      * platform. Unzipping a plugin can drop the executable bit; restore it.
      */
     private fun bundled(): Path? {
@@ -76,9 +77,6 @@ object WorkforestCli {
         }
         return path
     }
-
-    private fun expandHome(path: String): String =
-        if (path == "~" || path.startsWith("~/")) System.getProperty("user.home") + path.substring(1) else path
 
     /**
      * Runs `workforest ARGS` in [cwd] and returns its output; a non-zero

@@ -44,11 +44,6 @@
     "configuration": {
       "title": "Workforest",
       "properties": {
-        "workforest.executable": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Path to the `workforest` command (`~` is expanded). Leave empty to use the first of: `PATH`, `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, and the copy bundled with this extension. Everything the extension does goes through it."
-        },
         "workforest.openIn": {
           "type": "string",
           "enum": [
@@ -84,7 +79,7 @@
     "viewsWelcome": [
       {
         "view": "workforest.forest",
-        "contents": "The `workforest` command was not found, and this build of the extension carries no copy for your platform.\n[Install Workforest](https://github.com/ArkadyBuryakov/workforest#install)\n[Set the Executable Path](command:workbench.action.openSettings?%5B%22workforest.executable%22%5D)\nWhen it is installed but not on the PATH VS Code sees, point the `workforest.executable` setting at it.",
+        "contents": "The `workforest` command was not found, and this build of the extension carries no copy for your platform.\n[Install Workforest](https://github.com/ArkadyBuryakov/workforest#install)\nInstall it so that it lands on `PATH`, in `~/.local/bin`, or in one of the usual system directories.",
         "when": "workforest.state == missing"
       },
       {

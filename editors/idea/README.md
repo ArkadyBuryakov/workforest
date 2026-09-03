@@ -68,13 +68,6 @@ it.
 
 *Settings | Tools | Workforest*:
 
-- **Executable** — the `workforest` command. Empty (the default) finds it
-  on the `PATH` the IDE sees, then in `~/.local/bin` (`uv tool`, pipx),
-  `/opt/homebrew/bin`, `/usr/local/bin`, and `/usr/bin`, and failing all
-  of those falls back to the copy shipped inside the plugin
-  (`bin/<os>-<arch>/workforest` in the plugin directory). Set it when the
-  IDE was launched without your shell's `PATH` (macOS dock, a desktop
-  launcher), or to pin one particular install.
 - **Open worktrees in** — where Create and Open put the worktree: a new
   window (default), this window, or ask every time. Opening always keeps
   to that choice: the plugin opens projects with explicit options rather
@@ -140,11 +133,14 @@ scripts:
 ```
 
 `workforest` itself need not be installed: a published plugin zip carries
-a self-contained CLI for Linux and macOS, x64 and arm64, and uses it when
-it finds no installed one. Installing it (see the project README) is still
-what gets you `wf` in your shell, the man pages, and `wf open`'s `cd` — and
-an installed one is always preferred. A plugin you built yourself has no
-`bin/` unless you filled it:
+a self-contained CLI for Linux and macOS, x64 and arm64
+(`bin/<os>-<arch>/workforest` in the plugin directory), and that is the one
+it runs — it was built with the plugin, so the two always match. Only where
+the zip has none (other platforms) does it fall back to the `PATH` the IDE
+sees, then `~/.local/bin` (`uv tool`, pipx), `/opt/homebrew/bin`,
+`/usr/local/bin`, and `/usr/bin`. Installing the CLI (see the project
+README) is what gets you `wf` in your shell, the man pages, and `wf open`'s
+`cd`. A plugin you built yourself has no `bin/` unless you filled it:
 
 ```sh
 ../../packaging/binary/build.sh bin/linux-x64    # <os>-<arch> of this machine
@@ -154,8 +150,10 @@ an installed one is always preferred. A plugin you built yourself has no
 ## Troubleshooting
 
 - *workforest not found* — this plugin build ships no CLI for your platform
-  and none is installed: install it, or set **Executable** (above). The
-  tool window shows a *Configure…* link in that state.
+  and none is installed: install it. The tool window shows an *Install
+  Workforest* link in that state. When it is installed but the IDE was
+  launched without your shell's `PATH` (macOS dock, a desktop launcher),
+  put it in `~/.local/bin` or one of the usual system directories.
 - *unrecognized arguments: --json* or *cannot prompt … not a terminal* —
   a `workforest` older than the plugin expects (it needs `list --json`).
   Update it.
@@ -192,10 +190,10 @@ found`), so for those, run the plugin.
   the last stderr line as the error message, and shell quoting. Pure and
   unit-tested (`ProtocolTest.kt`); JSON via the platform's bundled Gson.
 - `WorkforestCli.kt` — the only place a process is spawned: finds the
-  executable — the setting, `PATH`, the usual install directories, then the
-  bundled `bin/<os>-<arch>/workforest` (`Bundled.kt` names it, unit-tested
-  in `BundledTest.kt`) — and runs it with `NO_COLOR` and no terminal. The
-  plugin never runs git itself.
+  executable — the bundled `bin/<os>-<arch>/workforest` (`Bundled.kt` names
+  it, unit-tested in `BundledTest.kt`), else `PATH`, else the usual install
+  directories — and runs it with `NO_COLOR` and no terminal. The plugin
+  never runs git itself.
 - `Actions.kt` — every action; a tree selection (`WORKTREE_KEY` /
   `SCRIPT_KEY`) is the target from the tree's context menus and inline
   buttons (`TREE_PLACE`), never from the toolbar (`TOOLBAR_PLACE`), which
@@ -225,7 +223,7 @@ found`), so for those, run the plugin.
   `ProjectUtil.openOrImport` drops `forceOpenInNewFrame` for directories
   without `.idea/`, so that directory is created first (the IDE would
   create it on opening anyway).
-- `WorkforestSettings.kt` — the executable path and its settings page.
+- `WorkforestSettings.kt` — where worktrees open, and its settings page.
 - `META-INF/pluginIcon.svg` (+ `_dark`, 40 px) and `icons/toolWindow.svg`
   (+ `_dark`, 13 px, the tool-window greys) are the small-format project
   logo, `assets/src/logo-icon.svg`, with a square padded viewBox. All four
