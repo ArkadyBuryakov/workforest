@@ -814,7 +814,7 @@ def stop_script(
     _stop_jobs(config, name, running, by=f"`wf stop` in {cwd.name!r}", env=env)
 
 
-def running_scripts(cwd: Path) -> dict[Path, list[str]]:
+def running_scripts(cwd: Path) -> dict[Path, dict[str, int]]:
     """Which scripts of this project are running, by worktree path — the
     records of every worktree, since they share the common git dir."""
     return jobs.running_scripts(gitutil.git_common_dir(cwd))

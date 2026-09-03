@@ -33,8 +33,8 @@
     <change-notes><![CDATA[
     <ul>
       <li>0.2.0: the workforest CLI ships with the plugin and is the copy it runs — no separate install
-        needed, and the executable-path setting is gone; a running badge on the scripts; Delete and Checkout
-        act on this window's worktree.</li>
+        needed, and the executable-path setting is gone; running badges on the scripts, one per place with
+        the instance counts; Delete and Checkout act on this window's worktree.</li>
       <li>0.1.0: create, open, checkout, and delete worktrees; run scripts in the terminal; the Workforest tool window.</li>
     </ul>
     ]]></change-notes>

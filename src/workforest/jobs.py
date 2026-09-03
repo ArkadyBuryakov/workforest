@@ -26,6 +26,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -178,23 +179,23 @@ def classify(record: JobRecord) -> JobState:
     return JobState.LIVE if _alive(record.owner_pid) else JobState.ORPHAN
 
 
-def running_scripts(common_dir: Path) -> dict[Path, list[str]]:
-    """Which scripts are running where: worktree path → script names,
-    sorted, each name once however many instances of it run there. A record
-    whose processes are gone (STALE) does not count; it is left on disk for
-    its owner or `wf stop` to clean up.
+def running_scripts(common_dir: Path) -> dict[Path, dict[str, int]]:
+    """Which scripts are running where: worktree path → script name → how
+    many instances of it run there. A record whose processes are gone
+    (STALE) does not count; it is left on disk for its owner or `wf stop`
+    to clean up.
     """
     directory = common_dir / RUNNING_SUBDIR
     if not directory.is_dir():
         return {}
-    found: dict[Path, set[str]] = {}
+    found: dict[Path, Counter[str]] = {}
     for script_dir in sorted(directory.iterdir()):
         if not script_dir.is_dir():
             continue
         for job in jobs_for(common_dir, script_dir.name):
             if classify(job.record) is not JobState.STALE:
-                found.setdefault(Path(job.record.worktree), set()).add(script_dir.name)
-    return {worktree: sorted(names) for worktree, names in found.items()}
+                found.setdefault(Path(job.record.worktree), Counter())[script_dir.name] += 1
+    return {worktree: dict(sorted(counts.items())) for worktree, counts in found.items()}
 
 
 def process_started_before(pid: int, when: float) -> bool | None:

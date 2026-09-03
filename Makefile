@@ -11,9 +11,13 @@
 IDEA_JAVA_HOME ?= $(JAVA_HOME)
 IDEA_PLUGINS ?= $(HOME)/.local/share/JetBrains/IdeaIC2025.2
 
-.PHONY: check test lint type cov sync install uninstall logo \
+.PHONY: check test lint type cov sync install uninstall logo binary \
 	vscode vscode-build vscode-install vscode-uninstall \
 	idea idea-build idea-install idea-uninstall plugins
+
+# The platform directory the JetBrains plugin looks under (Bundled.kt), and
+# the name CI gives the matching binary artifact.
+PLATFORM := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')
 
 sync:
 	uv sync
@@ -48,10 +52,21 @@ install:
 uninstall:
 	uv tool uninstall workforest
 
+# --- The CLI the editor packages ship (packaging/binary) ----------------
+
+# One self-contained executable in dist/binary/, for this machine only: CI
+# builds all four platforms and packages one .vsix per platform. Both
+# editor builds copy it in, so a locally installed plugin always drives the
+# CLI it was built with instead of whatever is on the IDE's PATH.
+binary:
+	packaging/binary/build.sh
+
 # --- VS Code extension (editors/vscode) ---------------------------------
 
-# A fresh .vsix from this worktree.
-vscode-build:
+# A fresh .vsix from this worktree, carrying the CLI built alongside it.
+vscode-build: binary
+	rm -rf editors/vscode/bin && mkdir -p editors/vscode/bin
+	cp dist/binary/workforest editors/vscode/bin/workforest
 	cd editors/vscode && rm -f *.vsix && npm install --no-audit --no-fund && npm run package
 
 vscode-install:
@@ -66,7 +81,11 @@ vscode: vscode-build vscode-install
 
 # --- JetBrains plugin (editors/idea) ------------------------------------
 
-idea-build:
+# Only this machine's platform, so the zip is not the four-platform one CI
+# builds; that is all a local install can run anyway.
+idea-build: binary
+	rm -rf editors/idea/bin && mkdir -p editors/idea/bin/$(PLATFORM)
+	cp dist/binary/workforest editors/idea/bin/$(PLATFORM)/workforest
 	cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet buildPlugin
 
 # What "Install Plugin from Disk" does: unpack the zip into the plugins dir.

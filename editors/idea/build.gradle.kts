@@ -53,8 +53,9 @@ kotlin {
 
 // The CLI the plugin drives, shipped inside the plugin: one executable per
 // platform under bin/<os>-<arch>/, put there by packaging/binary/build.sh
-// before `./gradlew buildPlugin` (CI does that). A local build has no bin/
-// and the plugin falls back to an installed workforest, as it always did.
+// before `./gradlew buildPlugin`: `make idea-build` supplies this machine's
+// platform, CI all four. A bare `./gradlew buildPlugin` has no bin/ and the
+// plugin falls back to an installed workforest, as it always did.
 tasks.withType<PrepareSandboxTask>().configureEach {
     from(layout.projectDirectory.dir("bin")) {
         // Under the plugin's own directory — the root of the plugin zip,

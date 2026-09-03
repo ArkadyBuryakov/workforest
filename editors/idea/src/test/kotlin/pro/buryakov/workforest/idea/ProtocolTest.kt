@@ -8,12 +8,12 @@ import java.nio.file.Path
 class ProtocolTest {
     private val forestJson = """
         {
-          "main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": []},
+          "main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": {}},
           "worktrees_dir": "/dev/worktrees/api",
           "worktrees": [
             {"name": "feat", "branch": "feature/feat", "path": "/dev/worktrees/api/feat", "dirty": true,
-             "running": ["dev", "test"]},
-            {"name": "fix", "branch": null, "path": "/dev/worktrees/api/fix", "dirty": false, "running": ["dev"]}
+             "running": {"dev": 2, "test": 1}},
+            {"name": "fix", "branch": null, "path": "/dev/worktrees/api/fix", "dirty": false, "running": {"dev": 1}}
           ]
         }
     """.trimIndent()
@@ -27,9 +27,9 @@ class ProtocolTest {
             listOf(
                 Worktree(
                     "feat", "feature/feat", Path.of("/dev/worktrees/api/feat"), dirty = true,
-                    running = listOf("dev", "test"),
+                    running = mapOf("dev" to 2, "test" to 1),
                 ),
-                Worktree("fix", null, Path.of("/dev/worktrees/api/fix"), dirty = false, running = listOf("dev")),
+                Worktree("fix", null, Path.of("/dev/worktrees/api/fix"), dirty = false, running = mapOf("dev" to 1)),
             ),
             forest.worktrees,
         )
@@ -37,7 +37,7 @@ class ProtocolTest {
 
     @Test
     fun emptyForestHasNoWorktrees() {
-        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": []},
+        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": {}},
             "worktrees_dir": "/dev/worktrees/api", "worktrees": []}"""
         assertEquals(emptyList<Worktree>(), Protocol.parseForest(json).worktrees)
     }

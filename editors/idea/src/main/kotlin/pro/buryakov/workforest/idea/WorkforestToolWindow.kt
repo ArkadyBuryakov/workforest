@@ -61,7 +61,7 @@ enum class Section(val title: String, val empty: String, val menu: String) {
 /** An inline button on a row: an action, run with the row as its target. */
 class InlineButton(val actionId: String, val icon: Icon, val text: String)
 
-/** The running badge's colours: light blue in this worktree, orange in the others. */
+/** The running badges' colours: light blue in this worktree, orange in the others. */
 private val RUNNING_HERE = JBColor(0x3592C4, 0x548AF7)
 private val RUNNING_ELSEWHERE = JBColor.ORANGE
 
@@ -291,7 +291,7 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         else -> null
     }
 
-    /** Where [script] is running: this window's worktree, and how many others. */
+    /** Where [script] is running: how many instances here, and how many elsewhere. */
     private fun runningOf(script: ScriptInfo): RunningState = RunningState.of(worktrees, script.name, here)
 
     private fun show(view: ForestView) {
@@ -383,11 +383,13 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
             }
         }
 
-        /** The running badge: light blue for this worktree, orange for the others. */
+        /** The running badges, side by side: light blue for this worktree,
+         * orange for the others, each counted past one instance. */
         private fun renderRunning(state: RunningState) {
-            val badge = state.badge ?: return
-            val color = if (state.here) RUNNING_HERE else RUNNING_ELSEWHERE
-            append("  $badge", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, color))
+            state.hereBadge?.let { append("  $it", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, RUNNING_HERE)) }
+            state.elsewhereBadge?.let {
+                append("  $it", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, RUNNING_ELSEWHERE))
+            }
         }
 
         private fun renderWorktree(worktree: Worktree) {

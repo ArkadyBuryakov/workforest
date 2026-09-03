@@ -260,7 +260,7 @@ class TestList:
             "branch": "main",
             "path": str(repo.path),
             "dirty": True,
-            "running": [],
+            "running": {},
         }
         assert data["worktrees_dir"] == str(ctx.worktrees_dir)
         assert data["worktrees"] == [
@@ -269,7 +269,7 @@ class TestList:
                 "branch": "feature/one",
                 "path": str(ctx.worktrees_dir / "one"),
                 "dirty": False,
-                "running": [],
+                "running": {},
             }
         ]
 
@@ -304,8 +304,8 @@ class TestList:
         finally:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
-        assert data["main"]["running"] == []
-        assert data["worktrees"][0]["running"] == ["dev"]
+        assert data["main"]["running"] == {}
+        assert data["worktrees"][0]["running"] == {"dev": 1}
 
     def test_json_of_empty_forest_still_describes_main(self, repo: Repo) -> None:
         import json

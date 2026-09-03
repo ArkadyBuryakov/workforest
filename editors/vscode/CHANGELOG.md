@@ -10,8 +10,10 @@ the package has none (other platforms, the universal build) does it fall
 back to `PATH` and the usual install directories. The
 `workforest.executable` setting is gone with it.
 
-- Scripts show a running badge: light blue in this window's worktree,
-  orange (with the count) in the others.
+- Scripts are marked where they run: the row's icon turns light blue in
+  this window's worktree and orange in the others, with the instance
+  counts next to the name. The marks are part of the row, so the run and
+  stop buttons no longer shift as a script starts or stops.
 - Checkout and Delete from the header or the Command Palette act on the
   worktree this window is in, after confirming it, instead of asking
   which; from the main checkout they still ask.

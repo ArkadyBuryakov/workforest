@@ -15,9 +15,10 @@ collapsible sections:
   `bulk`, or a `pipeline` (each with its own icon), `background` /
   `exclusive` flagged, the command in the tooltip. ▶ runs one in this
   window's worktree (`workforest run NAME` in a new terminal tab), ■ stops
-  it; double-click runs. A running script wears a `●`: light blue when it
-  runs in this window's worktree, orange — with the count once there are
-  several — when it runs in others. The section follows
+  it; double-click runs. A running script wears a `●` per place, side by
+  side: light blue for this window's worktree, orange for the others,
+  each with the count of instances once there is more than one. The
+  tooltip says the same in words. The section follows
   `.workforest.yaml` edits and the running scripts of every worktree.
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened in this IDE first (never-opened ones by creation

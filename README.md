@@ -395,9 +395,9 @@ Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
 checkout, in the same `name`/`branch`/`path`/`dirty`/`running` shape as each
-entry of `worktrees`, `running` being the names of the scripts running
-there, each once however many instances of it run) and the resolved `worktrees_dir` — and is what the editor extensions
-read.
+entry of `worktrees`, `running` being an object mapping the name of each
+script running there to how many instances of it run) and the resolved
+`worktrees_dir` — and is what the editor extensions read.
 
 ## JetBrains IDE plugin
 
@@ -441,7 +441,7 @@ the `.idea/` carry-over recipe, troubleshooting).
 `editors/vscode/` holds a VS Code extension that puts the forest in the
 editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
 its header and two collapsible sections, Scripts (run/stop with one
-click, badged where they are running) and Worktrees (main checkout, then
+click, marked where they are running) and Worktrees (main checkout, then
 managed worktrees by recency, dirty markers, the worktree this window is
 in), commands to create, open, delete, and checkout worktrees (the last
 two on this window's worktree when invoked on no row), run and stop `scripts` in
@@ -462,7 +462,9 @@ npm run check        # compile, unit tests, package → workforest-*.vsix
 code --install-extension workforest-*.vsix
 ```
 
-`make vscode` (see Development) does the same from the repository root.
+`make vscode` (see Development) does the same from the repository root, and
+additionally freezes this checkout's CLI into the `.vsix`, so the installed
+extension drives the `workforest` it was built with.
 
 `editors/vscode/README.md` is the extension's own reference (features,
 settings, troubleshooting).
@@ -474,6 +476,7 @@ uv sync           # venv + dev dependencies (uv.lock)
 make check        # ruff + mypy --strict + pytest (coverage gate ≥ 90%)
 make install      # install this checkout as a uv tool (~/.local/bin/workforest)
 make uninstall    # remove it again
+make binary       # freeze this checkout into dist/binary/workforest (PyInstaller)
 make vscode       # build the VS Code extension and install it into VS Code
 make idea         # build the JetBrains plugin and unpack it into the IDE
 make plugins      # both (`-build`, `-install`, `-uninstall` targets exist too)
