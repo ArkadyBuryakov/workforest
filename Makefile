@@ -13,7 +13,7 @@ IDEA_PLUGINS ?= $(HOME)/.local/share/JetBrains/IdeaIC2025.2
 
 .PHONY: check test lint type cov sync install uninstall logo binary \
 	vscode vscode-build vscode-install vscode-uninstall \
-	idea idea-build idea-install idea-uninstall plugins
+	idea idea-build idea-build-full idea-install idea-uninstall plugins
 
 # The platform directory the JetBrains plugin looks under (Bundled.kt), and
 # the name CI gives the matching binary artifact.
@@ -87,6 +87,39 @@ idea-build: binary
 	rm -rf editors/idea/bin && mkdir -p editors/idea/bin/$(PLATFORM)
 	cp dist/binary/workforest editors/idea/bin/$(PLATFORM)/workforest
 	cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet buildPlugin
+
+# All four platforms in one zip: what CI publishes, and what the manual
+# first upload to the JetBrains Marketplace needs. PyInstaller only builds
+# for the machine it runs on, so the executables come from the Binaries
+# workflow — pushing a branch that touches the CLI runs it, so usually the
+# artifacts are already there; otherwise `gh workflow run binaries.yml
+# --ref <branch>`. The newest successful run of the current branch wins,
+# else the newest of any branch; BINARIES_RUN=<run id> picks one by hand.
+idea-build-full:
+	@command -v gh > /dev/null || { echo "the GitHub CLI (gh) fetches the other platforms' binaries" >&2; exit 1; }
+	rm -rf editors/idea/bin dist/binaries
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	run=$${BINARIES_RUN:-$$(gh run list --workflow=binaries.yml --branch "$$branch" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')}; \
+	[ -n "$$run" ] || run=$$(gh run list --workflow=binaries.yml --status=success --limit=1 --json databaseId --jq '.[0].databaseId'); \
+	[ -n "$$run" ] || { echo "no successful Binaries run — 'gh workflow run binaries.yml' first" >&2; exit 1; }; \
+	sha=$$(gh run view "$$run" --json headSha --jq .headSha); \
+	echo "binaries from run $$run ($$sha)"; \
+	if git cat-file -e "$$sha^{commit}" 2> /dev/null; then \
+		git diff --quiet "$$sha" HEAD -- src pyproject.toml uv.lock packaging/binary || \
+			echo "warning: the CLI changed since that run — these executables are not this checkout's" >&2; \
+	else \
+		echo "warning: $$sha is not in this checkout; cannot tell whether the CLI changed since" >&2; \
+	fi; \
+	gh run download "$$run" --pattern 'workforest-binary-*' --dir dist/binaries
+	@for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do \
+		src=dist/binaries/workforest-binary-$$target/workforest; \
+		[ -f "$$src" ] || { echo "missing $$src" >&2; exit 1; }; \
+		mkdir -p editors/idea/bin/$$target; \
+		cp "$$src" editors/idea/bin/$$target/workforest; \
+		chmod +x editors/idea/bin/$$target/workforest; \
+	done
+	cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet buildPlugin
+	@ls -l editors/idea/build/distributions/workforest-idea-*.zip
 
 # What "Install Plugin from Disk" does: unpack the zip into the plugins dir.
 idea-install:

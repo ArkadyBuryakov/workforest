@@ -6,6 +6,8 @@
     <description><![CDATA[
     Git worktree forest management from the IDE, driven by the
     <a href="https://github.com/ArkadyBuryakov/workforest">workforest</a> command line tool.
+    <b>Linux and macOS only</b> (x64 and arm64): workforest has no Windows build, and the plugin
+    cannot do anything without it.
     <p>
     Your repo has one working directory; your AI agents want five. Workforest gives every
     feature - and every agent - its own disposable git worktree in a predictable location,
@@ -25,9 +27,10 @@
           (most recently opened first, uncommitted changes marked) — with tooltips, inline buttons, and context
           menus — plus the current worktree on the status bar.</li>
     </ul>
-    The <code>workforest</code> CLI ships with the plugin (Linux and macOS, x64 and arm64) and is the copy
-    it runs, so nothing else is needed. On other platforms install it — <code>uv tool install workforest</code>,
-    Homebrew, or the AUR — and the plugin picks it up from PATH.
+    The <code>workforest</code> CLI ships with the plugin and is the copy it runs, so nothing else is
+    needed. Where this build carries no executable — a platform workforest runs on but ships no frozen
+    build for — install it (<code>uv tool install workforest</code>, Homebrew, or the AUR) and the
+    plugin picks it up from PATH.
     ]]></description>
 
     <change-notes><![CDATA[

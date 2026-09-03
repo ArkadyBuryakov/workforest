@@ -29,8 +29,16 @@ open class WorkforestException(message: String, val exitCode: Int = -1, val stde
 /** Where to send someone whose platform this build ships no executable for. */
 const val INSTALL_URL = "https://github.com/ArkadyBuryakov/workforest#install"
 
-class WorkforestNotFoundException : WorkforestException(
-    "workforest executable not found: this build of the plugin carries no copy for your platform, so install workforest",
+/**
+ * No executable to run. On Windows that is final ([unsupportedOs]); anywhere
+ * else installing workforest fixes it, so the callers offer that.
+ */
+class WorkforestNotFoundException(val unsupportedOs: Boolean = false) : WorkforestException(
+    if (unsupportedOs) {
+        "Workforest supports Linux and macOS only: there is no Windows build of the workforest CLI this plugin drives"
+    } else {
+        "workforest executable not found: this build of the plugin carries no copy for your platform, so install workforest"
+    },
 )
 
 object WorkforestCli {
@@ -48,7 +56,8 @@ object WorkforestCli {
     fun executable(): Path {
         bundled()?.let { return it }
         PathEnvironmentVariableUtil.findInPath("workforest")?.let { return it.toPath() }
-        return fallbackLocations.firstOrNull { Files.isExecutable(it) } ?: throw WorkforestNotFoundException()
+        fallbackLocations.firstOrNull { Files.isExecutable(it) }?.let { return it }
+        throw WorkforestNotFoundException(isUnsupportedOs(System.getProperty("os.name").orEmpty()))
     }
 
     /**
