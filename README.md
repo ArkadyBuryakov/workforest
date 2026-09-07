@@ -515,10 +515,14 @@ Release: bump `__version__` and push to main — CI tags the release,
 renders the templates, and publishes to PyPI, the AUR, and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
 published AUR package and tap are the only places rendered recipes exist.
-The same release event publishes the editor clients, each versioned on its
-own (`editors/vscode/package.json`, `editors/idea/gradle.properties`): a
-version already on its Marketplace is skipped, so a release that changed
-neither client publishes nothing there.
+The same release event publishes the editor clients. They have no version
+of their own — `editors/vscode/package.json` and
+`editors/idea/gradle.properties` carry a `0.0.0` placeholder, and every
+build stamps them with `__version__` — so a published client is always the
+release of the CLI frozen inside it, and a CLI fix reaches Marketplace
+users with the next release like it reaches everyone else. A version
+already on a Marketplace is skipped, which makes re-running an old release
+a no-op.
 
 ## License
 

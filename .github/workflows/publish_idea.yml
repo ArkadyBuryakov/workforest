@@ -5,9 +5,11 @@ name: Publish JetBrains plugin
 # every platform (packaging/binary/build.sh) under bin/<os>-<arch>/, so
 # installing the plugin is enough — no separate CLI install.
 #
-# The plugin has a version of its own (editors/idea/gradle.properties); a
-# version already on the Marketplace is skipped, so a workforest release
-# without plugin changes is a no-op. Needs the JB_PUBLISH_TOKEN secret (a
+# The plugin has no version of its own: gradle.properties carries a
+# placeholder and the build is passed the CLI's __version__, so what the
+# Marketplace serves is always the release frozen inside it. A version
+# already on the Marketplace is skipped, which makes a re-run of an old
+# release a no-op. Needs the JB_PUBLISH_TOKEN secret (a
 # Marketplace permanent token, plugins.jetbrains.com/author/me/tokens);
 # without it the publish step is skipped. The environment variable it
 # becomes has to be PUBLISH_TOKEN — that name is the Gradle plugin's, the
@@ -74,8 +76,12 @@ jobs:
           done
           ls -l bin/*
 
-      - name: Compile, test, package
-        run: ./gradlew --no-daemon build buildPlugin
+      - name: Compile, test, package as the version of the CLI it ships
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
+          [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
+          echo "PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
+          ./gradlew --no-daemon -PpluginVersion="$version" build buildPlugin
 
       - name: The zip carries every platform's CLI
         run: |
@@ -86,10 +92,9 @@ jobs:
       - name: Publish
         if: env.PUBLISH_TOKEN != ''
         run: |
-          version=$(sed -n 's/^pluginVersion=//p' gradle.properties)
           if curl -fsS "https://plugins.jetbrains.com/api/plugins/$PLUGIN_ID/updates" \
-             | jq -e --arg v "$version" 'any(.[]; .version == $v)' > /dev/null; then
-            echo "workforest $version is already on the JetBrains Marketplace — nothing to publish."
+             | jq -e --arg v "$PLUGIN_VERSION" 'any(.[]; .version == $v)' > /dev/null; then
+            echo "workforest $PLUGIN_VERSION is already on the JetBrains Marketplace — nothing to publish."
           else
-            ./gradlew --no-daemon publishPlugin
+            ./gradlew --no-daemon -PpluginVersion="$PLUGIN_VERSION" publishPlugin
           fi
