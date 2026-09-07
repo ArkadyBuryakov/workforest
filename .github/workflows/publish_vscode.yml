@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: vscode-marketplace
-      url: https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest
+      url: https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest-vscode
     permissions:
       contents: read
       # Mint the GitHub OIDC token that azure/login trades for an Entra one.

@@ -84,7 +84,7 @@ vscode-install:
 	code --install-extension "$$vsix" --force
 
 vscode-uninstall:
-	code --uninstall-extension ArkadyBuryakov.workforest
+	code --uninstall-extension ArkadyBuryakov.workforest-vscode
 
 vscode: vscode-build vscode-install
 

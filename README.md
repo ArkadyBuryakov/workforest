@@ -459,8 +459,8 @@ Marketplace: `# TO DO`
 ```sh
 cd editors/vscode
 npm install
-npm run check        # compile, unit tests, package → workforest-*.vsix
-code --install-extension workforest-*.vsix
+npm run check        # compile, unit tests, package → workforest-vscode-*.vsix
+code --install-extension workforest-vscode-*.vsix
 ```
 
 `make vscode` (see Development) does the same from the repository root, and

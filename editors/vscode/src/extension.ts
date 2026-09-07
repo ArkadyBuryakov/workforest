@@ -68,7 +68,7 @@ export function activate(context: vscode.ExtensionContext): Api {
     command('workforest.initLocal', commands.initLocal),
     command('workforest.refresh', () => model.refresh()),
     vscode.commands.registerCommand('workforest.openSettings', () =>
-      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:ArkadyBuryakov.workforest'),
+      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:ArkadyBuryakov.workforest-vscode'),
     ),
     vscode.workspace.onDidChangeWorkspaceFolders(() => model.refresh()),
     vscode.window.onDidChangeWindowState((state) => {

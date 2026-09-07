@@ -41,7 +41,7 @@ export async function run(): Promise<void> {
 }
 
 async function smoke(): Promise<void> {
-  const extension = vscode.extensions.getExtension<Api>('ArkadyBuryakov.workforest');
+  const extension = vscode.extensions.getExtension<Api>('ArkadyBuryakov.workforest-vscode');
   assert.ok(extension, 'extension not found');
   const api = await extension.activate();
   await api.model.refresh();
