@@ -453,8 +453,15 @@ item. It is a thin client: every action runs the `workforest` command
 subcommands with `--force`/`--keep-branch` in place of terminal prompts),
 so the editor and your shell always agree.
 
-Build and install the extension from a checkout until it is on the
-Marketplace: `# TO DO`
+Install it from the Extensions view, or from the
+[Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest-vscode).
+VSCodium, Cursor, Windsurf and the other forks take it from
+[Open VSX](https://open-vsx.org/extension/ArkadyBuryakov/workforest). The
+two registries carry the same extension under different ids — the
+Marketplace already had a `workforest` from another author, so the
+extension is `ArkadyBuryakov.workforest-vscode` there and
+`ArkadyBuryakov.workforest` on Open VSX. To build it from a checkout
+instead:
 
 ```sh
 cd editors/vscode
@@ -515,13 +522,19 @@ Release: bump `__version__` and push to main — CI tags the release,
 renders the templates, and publishes to PyPI, the AUR, and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
 published AUR package and tap are the only places rendered recipes exist.
-The same release event publishes the editor clients. They have no version
-of their own — `editors/vscode/package.json` and
+The same release event runs `publish_editors.yml`, which publishes the VS
+Code extension to the Visual Studio Marketplace and to Open VSX and the
+plugin to the JetBrains Marketplace. That is one workflow rather than three
+because all three ship the same executables and GitHub scopes artifacts to
+a run: the four-platform matrix builds once and every publisher is a job of
+the same run. `gh workflow run publish_editors.yml --ref main -f
+targets=vscode` republishes one client on its own. The clients have no
+version of their own — `editors/vscode/package.json` and
 `editors/idea/gradle.properties` carry a `0.0.0` placeholder, and every
 build stamps them with `__version__` — so a published client is always the
-release of the CLI frozen inside it, and a CLI fix reaches Marketplace
+release of the CLI frozen inside it, and a CLI fix reaches marketplace
 users with the next release like it reaches everyone else. A version
-already on a Marketplace is skipped, which makes re-running an old release
+already on a marketplace is skipped, which makes re-running an old release
 a no-op.
 
 ## License

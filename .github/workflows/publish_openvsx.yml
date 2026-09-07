@@ -1,0 +1,89 @@
+name: Publish to Open VSX
+
+# The same extension as publish_vscode.yml, for the editors that cannot use
+# the Visual Studio Marketplace: VSCodium, Cursor, Windsurf, Gitpod,
+# code-server. One .vsix per platform — Open VSX carries platform-specific
+# versions like the Marketplace does — each with the `workforest` executable
+# for it, taken from the caller's binaries matrix. publish_editors.yml is the
+# entry point; `-f targets=openvsx` there republishes just this one.
+#
+# The extension is ArkadyBuryakov.workforest here, not the
+# ArkadyBuryakov.workforest-vscode of the Marketplace. Open VSX scopes names
+# to the namespace and has no competing `workforest`, so the extension keeps
+# its own name rather than carrying a collision from another registry into
+# editors that never had one. package.json holds the Marketplace pair, so the
+# packaging step below stamps this registry's over it. Only the manifest
+# differs — nothing in src/ hardcodes the id.
+#
+# Needs an OVSX_PAT secret: an access token from open-vsx.org user settings,
+# which takes signing the Eclipse Foundation Publisher Agreement once. ovsx
+# reads that variable name itself, so the token never reaches a command line.
+# Without it the publish steps are skipped. The ArkadyBuryakov namespace
+# already exists; `ovsx create-namespace` is not part of a release.
+
+on:
+  workflow_call:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: open-vsx
+      url: https://open-vsx.org/extension/ArkadyBuryakov/workforest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    env:
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: workforest-binary-*
+          path: ${{ github.workspace }}/binaries
+
+      - name: Install
+        run: npm ci
+
+      - name: Compile and test
+        run: npm test
+
+      - name: Package one .vsix per platform, under the Open VSX identity
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
+          [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
+          npm pkg set version="$version" name=workforest displayName=Workforest
+          echo "packaging $version as $(npm pkg get name | tr -d '\"')"
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            rm -rf bin && mkdir bin
+            cp "$GITHUB_WORKSPACE/binaries/workforest-binary-$target/workforest" bin/workforest
+            chmod +x bin/workforest
+            npx vsce package --no-dependencies --target "$target"
+          done
+          ls -l ./*.vsix
+
+      - name: Check the token can publish to the namespace
+        if: env.OVSX_PAT != ''
+        run: npx ovsx verify-pat ArkadyBuryakov
+
+      # --skip-duplicate is per (version, platform) here too, so a retry
+      # re-uploads only what is missing.
+      - name: Publish
+        if: env.OVSX_PAT != ''
+        run: |
+          for vsix in ./*.vsix; do
+            for attempt in 1 2 3; do
+              [ "$attempt" = 1 ] || sleep 30
+              if npx ovsx publish --skip-duplicate --packagePath "$vsix"; then
+                continue 2
+              fi
+              echo "::warning::publishing $vsix failed (attempt $attempt of 3)"
+            done
+            echo "::error::giving up on $vsix"
+            exit 1
+          done

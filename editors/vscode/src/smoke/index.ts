@@ -41,7 +41,13 @@ export async function run(): Promise<void> {
 }
 
 async function smoke(): Promise<void> {
-  const extension = vscode.extensions.getExtension<Api>('ArkadyBuryakov.workforest-vscode');
+  // Not by id: it differs per registry, and a second hardcoded copy is
+  // exactly what made the last rename a six-file change.
+  const extension = vscode.extensions.all.find(
+    (candidate) =>
+      candidate.packageJSON.publisher === 'ArkadyBuryakov' &&
+      String(candidate.packageJSON.name).startsWith('workforest'),
+  ) as vscode.Extension<Api> | undefined;
   assert.ok(extension, 'extension not found');
   const api = await extension.activate();
   await api.model.refresh();

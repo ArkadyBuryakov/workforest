@@ -1,0 +1,65 @@
+name: Publish editor clients
+
+# Publishes the VS Code extension — to the Visual Studio Marketplace and to
+# Open VSX — and the JetBrains plugin, when a release is published or on
+# demand. Each client's own workflow holds its detail; this one exists to
+# build what they all ship, once.
+#
+# GitHub scopes artifacts to a run, so the four-platform executable matrix
+# can only be shared by publishers that are part of the same run. Calling
+# them from here makes them jobs of this run; triggering them separately
+# would give each its own, and its own matrix — which is what this replaces.
+#
+# The environment each called workflow declares still reaches the OIDC
+# subject claim (`repo:OWNER/REPO:environment:NAME`), so the Marketplace's
+# federated credential keeps matching from here.
+#
+# workflow_dispatch takes a target, so one client can be republished without
+# the others. That rebuilds the binaries for it, which costs what the old
+# per-client workflows cost and keeps every run self-contained.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: Which clients to publish
+        type: choice
+        options: [all, vscode, openvsx, idea]
+        default: all
+
+jobs:
+  # The CLI every client ships, one per platform.
+  binaries:
+    uses: ./.github/workflows/binaries.yml
+
+  # id-token has to be granted here: it is never on by default, and a called
+  # workflow cannot raise what the caller hands it.
+  vscode:
+    name: Marketplace
+    if: github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || inputs.targets == 'vscode'
+    needs: binaries
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish_vscode.yml
+    secrets: inherit
+
+  openvsx:
+    name: Open VSX
+    if: github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || inputs.targets == 'openvsx'
+    needs: binaries
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish_openvsx.yml
+    secrets: inherit
+
+  idea:
+    name: JetBrains
+    if: github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || inputs.targets == 'idea'
+    needs: binaries
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish_idea.yml
+    secrets: inherit
