@@ -11,17 +11,42 @@ name: Publish VS Code extension
 # so what the Marketplace serves is always the release frozen inside it. A
 # (version, platform) pair already on the Marketplace is skipped, which makes
 # a re-run of an old release a no-op and a re-run of a half-finished one pick
-# up where it stopped. Needs the VSCE_PAT secret (a
-# Marketplace personal access token for the publisher in package.json);
-# without it the publish step is skipped.
+# up where it stopped.
 #
-# That token is an Azure DevOps *global* PAT ("All accessible organizations",
-# scope Marketplace/Manage) — the Marketplace accepts nothing narrower, and
-# global PATs are decommissioned on 2026-12-01. Before then this job has to
-# move to Microsoft Entra (`vsce publish --azure-credential`, a user-assigned
-# managed identity added as a member of the publisher) or to trusted
-# publishing (`vsce publish --oidc`, no secret at all) once that ships — it is
-# in vsce's main branch but not in a release as of 3.9.2.
+# Authentication is Microsoft Entra ID, not a Marketplace PAT. The job trades
+# GitHub's OIDC token for an Entra one against a federated credential on an app
+# registration, and `vsce publish --azure-credential` picks that up through the
+# AzureCliCredential link of its credential chain. Nothing secret is stored:
+# AZURE_CLIENT_ID and AZURE_TENANT_ID are identifiers, and without them the
+# publish steps are skipped.
+#
+# This replaces a VSCE_PAT global PAT, which stopped working outright: the
+# Marketplace accepted the token and then never answered — every authenticated
+# request to /_apis/gallery hung for exactly the client's 180s socket timeout,
+# from CI and from a workstation alike, while anonymous requests to the same
+# endpoint answered in 0.35s. Global PATs are decommissioned on 2026-12-01
+# regardless. Trusted publishing (`vsce publish --oidc`, which would need no
+# Entra app at all) is still unreleased: absent from vsce 3.9.2 and from the
+# 3.9.3-11 prerelease.
+#
+# One-time setup, none of which lives in this repo:
+#   1. A *user-assigned managed identity* in Azure. Not an app registration:
+#      that authenticates and then fails the publish itself with
+#      InvalidAccessException (vscode-vsce#1023, closed not-planned). A managed
+#      identity needs a subscription and a resource group; the identity is free.
+#   2. On it, a federated credential for GitHub Actions: organization
+#      ArkadyBuryakov, repository workforest, entity type "Environment", value
+#      "vscode-marketplace". That value must match the `environment:` below or
+#      Entra refuses the token exchange.
+#   3. Its client and tenant ids stored as AZURE_CLIENT_ID and AZURE_TENANT_ID
+#      in the vscode-marketplace environment.
+#   4. The identity added as a Contributor member of the publisher at
+#      marketplace.visualstudio.com/manage. The member search accepts exactly
+#      one id, and it is none of the ids the Azure portal shows: it is the one
+#      from app.vssps.visualstudio.com/_apis/profile/profiles/me, called while
+#      signed in *as the identity*. The check below prints it, so the first run
+#      of this workflow is what hands you the value step 4 needs — it fails,
+#      you add the member, you re-run.
 
 on:
   release:
@@ -41,11 +66,17 @@ jobs:
       url: https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest
     permissions:
       contents: read
+      # Mint the GitHub OIDC token that azure/login trades for an Entra one.
+      id-token: write
     defaults:
       run:
         working-directory: editors/vscode
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      # Identifiers, not credentials. AZURE_TENANT_ID also reaches vsce, which
+      # passes it down as `az account get-access-token --tenant` — the tenant
+      # login below has no subscription, so that flag is what makes it resolve.
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -83,19 +114,50 @@ jobs:
           done
           ls -l ./*.vsix
 
+      - name: Sign in to Microsoft Entra ID
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          # The app holds a Marketplace publisher membership, not a role on any
+          # Azure subscription, so a tenant-level login is all there is to do.
+          allow-no-subscriptions: true
+
+      # vsce's credential chain reaches ManagedIdentityCredential right after
+      # the CLI one, and on a runner that link probes IMDS and hangs rather
+      # than failing — a broken sign-in would stall the publish loop for the
+      # better part of an hour instead of erroring. So prove the token exists
+      # first, under a timeout. This is the exact call vsce makes.
+      - name: Check the sign-in, and report the id the publisher must list
+        if: env.AZURE_CLIENT_ID != ''
+        run: |
+          # 499b84ac-… is the Azure DevOps resource id vsce asks for.
+          if ! timeout 60 az account get-access-token \
+                 --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+                 --tenant "$AZURE_TENANT_ID" --query expiresOn -o tsv; then
+            echo "::error::this identity got no Azure DevOps token — check the" \
+                 "federated credential on the managed identity"
+            exit 1
+          fi
+          id=$(timeout 60 az rest --method get --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+                 --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+                 --query id -o tsv) || id=""
+          echo "::notice::publisher member id for this identity: ${id:-<lookup failed>}"
+
       # The Marketplace stalls often enough that one upload attempt is not a
       # release: vsce retries nothing outside the signed-package path, and its
       # socket timeout (3 minutes, from typed-rest-client) is not settable. So
       # publish one .vsix at a time and retry each on its own; --skip-duplicate
       # is per (version, platform), so a retry re-uploads only what is missing.
       - name: Publish
-        if: env.VSCE_PAT != ''
+        if: env.AZURE_CLIENT_ID != ''
         run: |
           for vsix in ./*.vsix; do
             for attempt in 1 2 3; do
               [ "$attempt" = 1 ] || sleep 30
               if npx vsce publish --no-dependencies --skip-duplicate \
-                                  --packagePath "$vsix"; then
+                                  --azure-credential --packagePath "$vsix"; then
                 continue 2
               fi
               echo "::warning::publishing $vsix failed (attempt $attempt of 3)"
