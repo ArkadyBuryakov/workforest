@@ -9,8 +9,9 @@ name: Publish VS Code extension
 # The extension has no version of its own: package.json carries a
 # placeholder and the packaging step stamps it with the CLI's __version__,
 # so what the Marketplace serves is always the release frozen inside it. A
-# version already on the Marketplace is skipped, which makes a re-run of an
-# old release a no-op. Needs the VSCE_PAT secret (a
+# (version, platform) pair already on the Marketplace is skipped, which makes
+# a re-run of an old release a no-op and a re-run of a half-finished one pick
+# up where it stopped. Needs the VSCE_PAT secret (a
 # Marketplace personal access token for the publisher in package.json);
 # without it the publish step is skipped.
 #
@@ -82,15 +83,23 @@ jobs:
           done
           ls -l ./*.vsix
 
+      # The Marketplace stalls often enough that one upload attempt is not a
+      # release: vsce retries nothing outside the signed-package path, and its
+      # socket timeout (3 minutes, from typed-rest-client) is not settable. So
+      # publish one .vsix at a time and retry each on its own; --skip-duplicate
+      # is per (version, platform), so a retry re-uploads only what is missing.
       - name: Publish
         if: env.VSCE_PAT != ''
         run: |
-          version=$(node -p "require('./package.json').version")
-          publisher=$(node -p "require('./package.json').publisher")
-          name=$(node -p "require('./package.json').name")
-          if npx vsce show "$publisher.$name" --json 2>/dev/null \
-             | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.exit(JSON.parse(d).versions.some(v=>v.version==='$version')?0:1))"; then
-            echo "$publisher.$name@$version is already on the Marketplace — nothing to publish."
-          else
-            npx vsce publish --no-dependencies --packagePath workforest-*.vsix
-          fi
+          for vsix in ./*.vsix; do
+            for attempt in 1 2 3; do
+              [ "$attempt" = 1 ] || sleep 30
+              if npx vsce publish --no-dependencies --skip-duplicate \
+                                  --packagePath "$vsix"; then
+                continue 2
+              fi
+              echo "::warning::publishing $vsix failed (attempt $attempt of 3)"
+            done
+            echo "::error::giving up on $vsix"
+            exit 1
+          done
