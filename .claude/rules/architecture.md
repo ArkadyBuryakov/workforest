@@ -31,6 +31,13 @@
   Parsing lives in `forest.ts`, which never imports `vscode` and is
   unit-tested with `node:test`; `cli.ts` is the only module that spawns.
   Verify with `npm run check` there (compile, tests, `vsce package`).
+  It ships to two registries under two identities —
+  `ArkadyBuryakov.workforest-vscode` on the Visual Studio Marketplace, which
+  refuses a name another publisher already holds, and
+  `ArkadyBuryakov.workforest` on Open VSX, which does not. Only the manifest
+  differs: `publish_openvsx.yml` stamps the Open VSX pair on before
+  packaging, so nothing in `src/` may hardcode the id — ask VS Code for it
+  (`context.extension.id`).
 - README.md is the project reference; there is no separate design document.
   The man pages under `man/` (`workforest.1`, `workforest.5`) are its
   installed counterpart: any change to commands, options, config keys,
