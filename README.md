@@ -420,9 +420,10 @@ agree. Deleting or checking out the worktree open in the current window
 opens the main checkout in its place — the IDE's version of `wf`'s `cd`
 back.
 
-Build and install the plugin from a checkout until it is on the Marketplace
-(any JDK runs Gradle, even the IDE's bundled one; the JDK 21 it compiles
-with is fetched automatically): `# TO DO`
+Install it from *Settings | Plugins | Marketplace*, or from
+[JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34090-workforest).
+To build it from a checkout instead (any JDK runs Gradle, even the IDE's
+bundled one; the JDK 21 it compiles with is fetched automatically):
 
 ```sh
 cd editors/idea
@@ -514,6 +515,10 @@ Release: bump `__version__` and push to main — CI tags the release,
 renders the templates, and publishes to PyPI, the AUR, and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
 published AUR package and tap are the only places rendered recipes exist.
+The same release event publishes the editor clients, each versioned on its
+own (`editors/vscode/package.json`, `editors/idea/gradle.properties`): a
+version already on its Marketplace is skipped, so a release that changed
+neither client publishes nothing there.
 
 ## License
 

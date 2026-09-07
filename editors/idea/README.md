@@ -95,8 +95,10 @@ lives (`wf init --local`).
 
 ## Install
 
-Until the plugin is on the JetBrains Marketplace, build it and drop it into
-the IDE's plugins directory:
+*Settings | Plugins | Marketplace*, search for **Workforest** — or
+[the listing](https://plugins.jetbrains.com/plugin/34090-workforest). To
+build it from a checkout instead and drop it into the IDE's plugins
+directory:
 
 ```sh
 cd editors/idea
