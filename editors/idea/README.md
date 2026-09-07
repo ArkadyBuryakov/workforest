@@ -4,7 +4,8 @@ Git worktree forest management inside IntelliJ IDEA, PyCharm, WebStorm,
 GoLand, RustRover, and the other IntelliJ-based IDEs (2025.2 or later),
 driven by the [`workforest`](../../README.md) command line tool. The plugin
 is a thin client: everything it does is a `workforest` command, so the IDE
-and your shell always agree about the forest.
+and your shell always agree about the forest. Linux and macOS only (x64 and
+arm64) — the CLI it drives has no Windows build.
 
 ## Features
 
@@ -94,8 +95,10 @@ lives (`wf init --local`).
 
 ## Install
 
-Until the plugin is on the JetBrains Marketplace, build it and drop it into
-the IDE's plugins directory:
+*Settings | Plugins | Marketplace*, search for **Workforest** — or
+[the listing](https://plugins.jetbrains.com/plugin/34090-workforest). To
+build it from a checkout instead and drop it into the IDE's plugins
+directory:
 
 ```sh
 cd editors/idea
@@ -148,6 +151,16 @@ README) is what gets you `wf` in your shell, the man pages, and `wf open`'s
 ./gradlew buildPlugin
 ```
 
+`make idea-build` from the repository root does exactly that. The published
+zip carries all four platforms, which one machine cannot build; `make
+idea-build-full` assembles it from the artifacts of the `Binaries`
+workflow, which CI runs for every pull request that touches the CLI.
+
+The plugin is versioned as the CLI it carries: `gradle.properties` holds a
+`0.0.0` placeholder and every build passes the real number
+(`-PpluginVersion`), which `make idea-build` and the publish workflow take
+from `__version__`.
+
 ## Troubleshooting
 
 - *workforest not found* — this plugin build ships no CLI for your platform
@@ -155,6 +168,9 @@ README) is what gets you `wf` in your shell, the man pages, and `wf open`'s
   Workforest* link in that state. When it is installed but the IDE was
   launched without your shell's `PATH` (macOS dock, a desktop launcher),
   put it in `~/.local/bin` or one of the usual system directories.
+- *Workforest supports Linux and macOS only* — on Windows there is nothing
+  to install: the CLI the plugin drives is a POSIX tool, so the plugin
+  offers no install link there and cannot work.
 - *unrecognized arguments: --json* or *cannot prompt … not a terminal* —
   a `workforest` older than the plugin expects (it needs `list --json`).
   Update it.

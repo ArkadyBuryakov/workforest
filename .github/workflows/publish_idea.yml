@@ -1,0 +1,100 @@
+name: Publish JetBrains plugin
+
+# Publishes editors/idea to the JetBrains Marketplace when a release is
+# published, or on demand. One zip carrying the `workforest` executable for
+# every platform (packaging/binary/build.sh) under bin/<os>-<arch>/, so
+# installing the plugin is enough — no separate CLI install.
+#
+# The plugin has no version of its own: gradle.properties carries a
+# placeholder and the build is passed the CLI's __version__, so what the
+# Marketplace serves is always the release frozen inside it. A version
+# already on the Marketplace is skipped, which makes a re-run of an old
+# release a no-op. Needs the JB_PUBLISH_TOKEN secret (a
+# Marketplace permanent token, plugins.jetbrains.com/author/me/tokens);
+# without it the publish step is skipped. The environment variable it
+# becomes has to be PUBLISH_TOKEN — that name is the Gradle plugin's, the
+# secret's says which marketplace it opens.
+#
+# Only updates go through here: the Marketplace upload API updates an
+# existing plugin, it cannot create one. pro.buryakov.workforest (id 34090)
+# was uploaded by hand once and reviewed by the Marketplace team.
+#
+# The zip is published unsigned, which makes the IDE warn on install. To
+# sign it, add the CERTIFICATE_CHAIN, PRIVATE_KEY and PRIVATE_KEY_PASSWORD
+# secrets and pass them to the publish step as env — the Gradle plugin
+# reads exactly those names and runs signPlugin before publishPlugin. Set
+# them only once they exist: an empty value is still a value, and signing
+# with one fails.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  # The CLI the zip ships, one per platform.
+  binaries:
+    uses: ./.github/workflows/binaries.yml
+
+  publish:
+    needs: binaries
+    runs-on: ubuntu-latest
+    environment:
+      name: jetbrains-marketplace
+      url: https://plugins.jetbrains.com/plugin/34090-workforest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: editors/idea
+    env:
+      PUBLISH_TOKEN: ${{ secrets.JB_PUBLISH_TOKEN }}
+      # The Marketplace's own id for pro.buryakov.workforest; the updates
+      # API takes that, not the plugin's xml id.
+      PLUGIN_ID: "34090"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: workforest-binary-*
+          path: ${{ github.workspace }}/binaries
+
+      - name: Lay the executables out the way the plugin resolves them
+        run: |
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            mkdir -p "bin/$target"
+            cp "$GITHUB_WORKSPACE/binaries/workforest-binary-$target/workforest" "bin/$target/workforest"
+            chmod +x "bin/$target/workforest"
+          done
+          ls -l bin/*
+
+      - name: Compile, test, package as the version of the CLI it ships
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
+          [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
+          echo "PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
+          ./gradlew --no-daemon -PpluginVersion="$version" build buildPlugin
+
+      - name: The zip carries every platform's CLI
+        run: |
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            unzip -l build/distributions/*.zip | grep -q "bin/$target/workforest"
+          done
+
+      - name: Publish
+        if: env.PUBLISH_TOKEN != ''
+        run: |
+          if curl -fsS "https://plugins.jetbrains.com/api/plugins/$PLUGIN_ID/updates" \
+             | jq -e --arg v "$PLUGIN_VERSION" 'any(.[]; .version == $v)' > /dev/null; then
+            echo "workforest $PLUGIN_VERSION is already on the JetBrains Marketplace — nothing to publish."
+          else
+            ./gradlew --no-daemon -PpluginVersion="$PLUGIN_VERSION" publishPlugin
+          fi

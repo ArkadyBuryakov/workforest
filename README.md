@@ -420,9 +420,10 @@ agree. Deleting or checking out the worktree open in the current window
 opens the main checkout in its place — the IDE's version of `wf`'s `cd`
 back.
 
-Build and install the plugin from a checkout until it is on the Marketplace
-(any JDK runs Gradle, even the IDE's bundled one; the JDK 21 it compiles
-with is fetched automatically): `# TO DO`
+Install it from *Settings | Plugins | Marketplace*, or from
+[JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34090-workforest).
+To build it from a checkout instead (any JDK runs Gradle, even the IDE's
+bundled one; the JDK 21 it compiles with is fetched automatically):
 
 ```sh
 cd editors/idea
@@ -482,6 +483,16 @@ make idea         # build the JetBrains plugin and unpack it into the IDE
 make plugins      # both (`-build`, `-install`, `-uninstall` targets exist too)
 ```
 
+`make idea-build-full` packages the JetBrains plugin the way a release
+does — all four platforms' executables in the one zip — which a local
+build cannot do alone: PyInstaller only freezes for the machine it runs
+on, so the other three come from the `Binaries` workflow, which runs for
+every pull request that touches the CLI (and on demand:
+`gh workflow run binaries.yml --ref <branch>`). The target picks that
+branch's newest successful run, downloads its artifacts, and says so when
+the CLI has changed since. That zip is what a manual upload to the
+JetBrains Marketplace takes.
+
 The two plugin targets need machine-specific paths: `IDEA_JAVA_HOME` (the JDK
 Gradle runs on; empty means `java` from the `PATH`) and `IDEA_PLUGINS` (the
 IDE's plugins directory, `~/.local/share/JetBrains/IdeaIC2025.2` by default).
@@ -504,6 +515,14 @@ Release: bump `__version__` and push to main — CI tags the release,
 renders the templates, and publishes to PyPI, the AUR, and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
 published AUR package and tap are the only places rendered recipes exist.
+The same release event publishes the editor clients. They have no version
+of their own — `editors/vscode/package.json` and
+`editors/idea/gradle.properties` carry a `0.0.0` placeholder, and every
+build stamps them with `__version__` — so a published client is always the
+release of the CLI frozen inside it, and a CLI fix reaches Marketplace
+users with the next release like it reaches everyone else. A version
+already on a Marketplace is skipped, which makes re-running an old release
+a no-op.
 
 ## License
 

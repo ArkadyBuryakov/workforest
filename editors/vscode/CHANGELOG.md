@@ -1,5 +1,8 @@
 # Changelog
 
+Versions are the `workforest` CLI's: the extension ships that CLI and is
+released with it, so its number is stamped in at package time.
+
 ## 0.2.0
 
 The `workforest` CLI ships with the extension: the Marketplace package for

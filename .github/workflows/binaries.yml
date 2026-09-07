@@ -1,0 +1,56 @@
+name: Binaries
+
+# The self-contained `workforest` executables the editor plugins ship, one
+# per platform (packaging/binary/build.sh). PyInstaller freezes for the
+# machine it runs on, so every target is built on a runner of its own.
+# Artifacts are named workforest-binary-<os>-<arch>, which is both the
+# `vsce package --target` identifier and the bin/<os>-<arch>/ directory the
+# JetBrains plugin looks under.
+#
+# Called by the publish workflows, dispatchable on its own, and run for a
+# pull request that touches the CLI these executables freeze — which is
+# where `make idea-build-full` gets the three platforms a single machine
+# cannot build. A pull request that leaves the CLI alone reuses whatever
+# run built it last: the binaries would be identical anyway.
+#
+# ci.yml builds linux-x64 of its own on every pull request, smoke-tests it,
+# and packages the editor clients around it; this is the full set, only
+# when it can differ.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/**
+      - pyproject.toml
+      - uv.lock
+      - packaging/binary/**
+      - .github/workflows/binaries.yml
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-latest
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+          - target: darwin-x64
+            os: macos-26-intel # the standard x86_64 macOS runner
+          - target: darwin-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the standalone executable
+        run: packaging/binary/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforest-binary-${{ matrix.target }}
+          path: dist/binary/workforest
