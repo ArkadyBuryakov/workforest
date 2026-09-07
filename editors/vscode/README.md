@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/ArkadyBuryakov/workforest/HEAD/editors/vscode/media/icon.png" alt="Workforest logo" width="96">
 </p>
 
-# Workforest for VS Code
+# Workforest
 
 Your repo has one working directory; your AI agents want five.
 [Workforest](https://github.com/ArkadyBuryakov/workforest) gives every

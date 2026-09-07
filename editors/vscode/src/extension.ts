@@ -68,7 +68,9 @@ export function activate(context: vscode.ExtensionContext): Api {
     command('workforest.initLocal', commands.initLocal),
     command('workforest.refresh', () => model.refresh()),
     vscode.commands.registerCommand('workforest.openSettings', () =>
-      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:ArkadyBuryakov.workforest-vscode'),
+      // The id differs per registry (the Marketplace forced a suffix the
+      // other registries do not carry), so ask VS Code which one this is.
+      vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${context.extension.id}`),
     ),
     vscode.workspace.onDidChangeWorkspaceFolders(() => model.refresh()),
     vscode.window.onDidChangeWindowState((state) => {

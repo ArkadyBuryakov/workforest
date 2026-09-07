@@ -1,73 +1,71 @@
-name: Publish VS Code extension
+name: Publish to the Visual Studio Marketplace
 
-# Publishes editors/vscode to the Visual Studio Marketplace when a release
-# is published, or on demand. One .vsix per platform, each carrying the
-# `workforest` executable for it (packaging/binary/build.sh), so installing
-# the extension is enough — no separate CLI install. Linux and macOS only:
-# that is what workforest supports.
+# One .vsix per platform, each carrying the `workforest` executable for it
+# (packaging/binary/build.sh), so installing the extension is enough — no
+# separate CLI install. Linux and macOS only: that is what workforest
+# supports. The executables come from the caller's binaries matrix, which is
+# why this runs only as a called workflow — publish_editors.yml is the entry
+# point, and `-f targets=vscode` there republishes just this one.
 #
-# The extension has no version of its own: package.json carries a
-# placeholder and the packaging step stamps it with the CLI's __version__,
-# so what the Marketplace serves is always the release frozen inside it. A
-# (version, platform) pair already on the Marketplace is skipped, which makes
-# a re-run of an old release a no-op and a re-run of a half-finished one pick
-# up where it stopped.
+# The extension has no version of its own: package.json carries a placeholder
+# and the packaging step stamps it with the CLI's __version__, so what the
+# Marketplace serves is always the release frozen inside it. A (version,
+# platform) pair already up is skipped, which makes a re-run of an old
+# release a no-op and a re-run of a half-finished one pick up where it
+# stopped.
 #
-# Authentication is Microsoft Entra ID, not a Marketplace PAT. The job trades
-# GitHub's OIDC token for an Entra one against a federated credential on an app
-# registration, and `vsce publish --azure-credential` picks that up through the
-# AzureCliCredential link of its credential chain. Nothing secret is stored:
+# The extension is ArkadyBuryakov.workforest-vscode here and
+# ArkadyBuryakov.workforest on Open VSX: the Marketplace refuses a name or a
+# display name another publisher already holds, and 8ctavio has held both
+# `workforest` and "Workforest" since 2026-03-09. package.json carries this
+# registry's pair; publish_openvsx.yml stamps its own on before packaging.
+#
+# Authentication is Microsoft Entra ID, not a Marketplace PAT. The caller
+# grants id-token, azure/login trades GitHub's OIDC token for an Entra one
+# against a federated credential on a user-assigned managed identity, and
+# `vsce publish --azure-credential` picks that up through the
+# AzureCliCredential link of its chain. Nothing secret is stored:
 # AZURE_CLIENT_ID and AZURE_TENANT_ID are identifiers, and without them the
 # publish steps are skipped.
 #
-# This replaces a VSCE_PAT global PAT, which stopped working outright: the
-# Marketplace accepted the token and then never answered — every authenticated
-# request to /_apis/gallery hung for exactly the client's 180s socket timeout,
-# from CI and from a workstation alike, while anonymous requests to the same
-# endpoint answered in 0.35s. Global PATs are decommissioned on 2026-12-01
-# regardless. Trusted publishing (`vsce publish --oidc`, which would need no
-# Entra app at all) is still unreleased: absent from vsce 3.9.2 and from the
-# 3.9.3-11 prerelease.
+# It used to be a VSCE_PAT global PAT, which stopped working outright: the
+# Marketplace accepted the token and never answered — every authenticated
+# request to /_apis/gallery hung for exactly the client's 180s socket
+# timeout, from CI and from a workstation alike, while anonymous requests to
+# the same endpoint answered in 0.35s. Global PATs are decommissioned on
+# 2026-12-01 regardless. Trusted publishing (`vsce publish --oidc`, which
+# would need no Entra identity at all) is still unreleased: absent from vsce
+# 3.9.2 and from the 3.9.3-11 prerelease.
 #
 # One-time setup, none of which lives in this repo:
 #   1. A *user-assigned managed identity* in Azure. Not an app registration:
 #      that authenticates and then fails the publish itself with
-#      InvalidAccessException (vscode-vsce#1023, closed not-planned). A managed
-#      identity needs a subscription and a resource group; the identity is free.
+#      InvalidAccessException (vscode-vsce#1023, closed not-planned). A
+#      managed identity needs a subscription and a resource group; the
+#      identity is free, but an expired trial subscription disables it.
 #   2. On it, a federated credential for GitHub Actions: organization
-#      ArkadyBuryakov, repository workforest, entity type "Environment", value
-#      "vscode-marketplace". That value must match the `environment:` below or
-#      Entra refuses the token exchange.
-#   3. Its client and tenant ids stored as AZURE_CLIENT_ID and AZURE_TENANT_ID
-#      in the vscode-marketplace environment.
+#      ArkadyBuryakov, repository workforest, entity type "Environment",
+#      value "vscode-marketplace". That value must match the `environment:`
+#      below or Entra refuses the token exchange.
+#   3. Its client and tenant ids stored as AZURE_CLIENT_ID and
+#      AZURE_TENANT_ID in the vscode-marketplace environment.
 #   4. The identity added as a Contributor member of the publisher at
 #      marketplace.visualstudio.com/manage. The member search accepts exactly
-#      one id, and it is none of the ids the Azure portal shows: it is the one
-#      from app.vssps.visualstudio.com/_apis/profile/profiles/me, called while
-#      signed in *as the identity*. The check below prints it, so the first run
-#      of this workflow is what hands you the value step 4 needs — it fails,
-#      you add the member, you re-run.
+#      one id, and it is none of the ids the Azure portal shows: it is the
+#      one from app.vssps.visualstudio.com/_apis/profile/profiles/me, called
+#      while signed in *as the identity*. The check below prints it, so the
+#      first run is what hands you the value step 4 needs — it fails, you add
+#      the member, you re-run.
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
+  workflow_call:
 
 jobs:
-  # The CLI each .vsix ships, one per platform.
-  binaries:
-    uses: ./.github/workflows/binaries.yml
-
   publish:
-    needs: binaries
     runs-on: ubuntu-latest
     environment:
       name: vscode-marketplace
       url: https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest-vscode
-    permissions:
-      contents: read
-      # Mint the GitHub OIDC token that azure/login trades for an Entra one.
-      id-token: write
     defaults:
       run:
         working-directory: editors/vscode
@@ -79,13 +77,11 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
-
       - uses: actions/download-artifact@v4
         with:
           pattern: workforest-binary-*
@@ -97,15 +93,12 @@ jobs:
       - name: Compile and test
         run: npm test
 
-      - name: Stamp the extension with the version of the CLI it ships
+      - name: Package one .vsix per platform, each with its own CLI
         run: |
           version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
           [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
           npm pkg set version="$version"
-          echo "packaging $version"
-
-      - name: Package one .vsix per platform, each with its own CLI
-        run: |
+          echo "packaging $version as $(npm pkg get name | tr -d '\"')"
           for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
             rm -rf bin && mkdir bin
             cp "$GITHUB_WORKSPACE/binaries/workforest-binary-$target/workforest" bin/workforest
@@ -120,8 +113,8 @@ jobs:
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          # The app holds a Marketplace publisher membership, not a role on any
-          # Azure subscription, so a tenant-level login is all there is to do.
+          # The identity holds a Marketplace publisher membership, not a role
+          # on any Azure subscription, so a tenant-level login is all there is.
           allow-no-subscriptions: true
 
       # vsce's credential chain reaches ManagedIdentityCredential right after
