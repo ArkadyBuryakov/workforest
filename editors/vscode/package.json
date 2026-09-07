@@ -1,6 +1,6 @@
 {
   "name": "workforest-vscode",
-  "displayName": "Workforest",
+  "displayName": "Workforest for VS Code",
   "description": "Git worktree forest management for Linux and macOS: create, open, run scripts in, and clean up per-branch worktrees with the workforest CLI",
   "version": "0.0.0",
   "publisher": "ArkadyBuryakov",
