@@ -26,6 +26,12 @@ PLATFORM := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m | se
 VERSION := $(shell sed -n 's/^__version__ = "\(.*\)"$$/\1/p' src/workforest/__init__.py)
 PLACEHOLDER_VERSION := 0.0.0
 
+# The changelog the clients publish is a placeholder in the repository too:
+# a release is one commit to CHANGELOG.md. Stamp it in for the build and put
+# the placeholder back afterwards, whether the build succeeded or not.
+STAMP := packaging/changelog/generate > /dev/null
+UNSTAMP := packaging/changelog/generate --placeholder > /dev/null
+
 sync:
 	uv sync
 
@@ -75,8 +81,11 @@ vscode-build: binary
 	rm -rf editors/vscode/bin && mkdir -p editors/vscode/bin
 	cp dist/binary/workforest editors/vscode/bin/workforest
 	cd editors/vscode && rm -f *.vsix && npm install --no-audit --no-fund
-	@cd editors/vscode && npm pkg set version=$(VERSION) && npm run package; \
-	status=$$?; npm pkg set version=$(PLACEHOLDER_VERSION); exit $$status
+	@$(STAMP); \
+	(cd editors/vscode && npm pkg set version=$(VERSION) && npm run package); \
+	status=$$?; \
+	(cd editors/vscode && npm pkg set version=$(PLACEHOLDER_VERSION)); \
+	$(UNSTAMP); exit $$status
 
 vscode-install:
 	@vsix=$$(ls -t editors/vscode/*.vsix 2>/dev/null | head -1); \
@@ -95,7 +104,9 @@ vscode: vscode-build vscode-install
 idea-build: binary
 	rm -rf editors/idea/bin && mkdir -p editors/idea/bin/$(PLATFORM)
 	cp dist/binary/workforest editors/idea/bin/$(PLATFORM)/workforest
-	cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet -PpluginVersion=$(VERSION) buildPlugin
+	@$(STAMP); \
+	(cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet -PpluginVersion=$(VERSION) buildPlugin); \
+	status=$$?; $(UNSTAMP); exit $$status
 
 # All four platforms in one zip: what CI publishes, and what the manual
 # first upload to the JetBrains Marketplace needs. PyInstaller only builds
@@ -127,7 +138,9 @@ idea-build-full:
 		cp "$$src" editors/idea/bin/$$target/workforest; \
 		chmod +x editors/idea/bin/$$target/workforest; \
 	done
-	cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet -PpluginVersion=$(VERSION) buildPlugin
+	@$(STAMP); \
+	(cd editors/idea && JAVA_HOME="$(IDEA_JAVA_HOME)" ./gradlew --quiet -PpluginVersion=$(VERSION) buildPlugin); \
+	status=$$?; $(UNSTAMP); exit $$status
 	@ls -l editors/idea/build/distributions/workforest-idea-*.zip
 
 # What "Install Plugin from Disk" does: unpack the zip into the plugins dir.

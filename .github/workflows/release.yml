@@ -26,9 +26,17 @@ jobs:
           # token do not trigger the release-published publisher workflows.
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          tag="v${{ steps.version.outputs.version }}"
+          version="${{ steps.version.outputs.version }}"
+          tag="v$version"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
             echo "Tag $tag already exists — nothing to release."
           else
-            gh release create "$tag" --target "$GITHUB_SHA" --generate-notes
+            # The release's own section of CHANGELOG.md is its notes; a
+            # version that has none falls back to the commit list.
+            notes=$(mktemp)
+            if packaging/changelog/generate --release-notes "$version" > "$notes"; then
+              gh release create "$tag" --target "$GITHUB_SHA" --notes-file "$notes"
+            else
+              gh release create "$tag" --target "$GITHUB_SHA" --generate-notes
+            fi
           fi
