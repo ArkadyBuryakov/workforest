@@ -161,6 +161,16 @@ The plugin is versioned as the CLI it carries: `gradle.properties` holds a
 (`-PpluginVersion`), which `make idea-build` and the publish workflow take
 from `__version__`.
 
+## Support the project
+
+Workforest is free, open source, and built by one person in the open. If it
+saved you a context switch today, two clicks go a long way:
+
+- ⭐⭐⭐⭐⭐ rate the plugin on the
+  [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34090-workforest/reviews).
+- ⭐ star the
+  [repository on GitHub](https://github.com/ArkadyBuryakov/workforest).
+
 ## Troubleshooting
 
 - *workforest not found* — this plugin build ships no CLI for your platform
