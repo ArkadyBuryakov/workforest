@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0
+
+Makefile targets are scripts without being configured.
+
+- `wf make TARGET` runs any target of the worktree's `GNUmakefile`,
+  `makefile`, or `Makefile` with everything `wf run` gives a configured
+  script: extra arguments, `-b` and a log file, the process group and
+  terminal handling, exit status, records, `exclusive` preemption, and
+  cleanup. A target runs under the name `make:TARGET`, so it never
+  shadows the `scripts` map; `wf stop --make TARGET` stops it again.
+- The new `make` config section says which targets are offered by name —
+  in shell completion and in the editors' script lists — through
+  `hidden`, `hide_scripts`, `show_scripts`, and `exclusive_scripts`.
+  Hiding is about what is offered, not what may run: a hidden target
+  still runs when named. Targets are read out of the makefile rather
+  than from `make`, so listing them never evaluates a `$(shell ...)`.
+- Both editor clients list the makefile targets alongside the scripts,
+  badged `make`, and run and stop them the same way.
+
 ## 0.6.1
 
 - The VS Code extension is published to
