@@ -71,6 +71,7 @@ jobs:
           version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
           [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
           echo "PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
+          "$GITHUB_WORKSPACE/packaging/changelog/generate"
           ./gradlew --no-daemon -PpluginVersion="$version" build buildPlugin
 
       - name: The zip carries every platform's CLI

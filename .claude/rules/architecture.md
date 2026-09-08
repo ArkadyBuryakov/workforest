@@ -65,6 +65,21 @@
   only file that spawns. `terminal/` is loaded only with the bundled
   Terminal plugin (optional dependency). Verify with `./gradlew build
   buildPlugin` there (JDK 21).
+- The changelog is written once: `CHANGELOG.md` at the root is the only
+  one edited by hand. Its versions are the CLI's — the clients ship it, so
+  one entry covers all three, back to 0.1.0, which predates them. It is
+  an end-user document, shipped verbatim in the .vsix: release notes
+  only, nothing about versioning policy or how the copies are made.
+  The clients' copies —
+  `editors/vscode/CHANGELOG.md` (the source verbatim) and the
+  `<change-notes>` block of the JetBrains `plugin.xml` (HTML, the most
+  recent releases only) — are placeholders in the repository exactly like
+  the version, stamped by `packaging/changelog/generate` at package time
+  and never committed: releasing is one commit to `CHANGELOG.md`. The
+  `make` targets put the placeholder back around a build; the publish
+  workflows only stamp. `release.yml` takes a release's GitHub notes from
+  the matching section. Adding a place that publishes a changelog means
+  adding a target there, not another file to keep in step.
 - Logo assets are generated, never hand-edited: `assets/src/logo.svg`
   (full size) and `assets/src/logo-icon.svg` (adapted for small formats,
   the source of every icon) are the only files touched by hand.

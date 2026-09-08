@@ -58,6 +58,7 @@ jobs:
           version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
           [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
           npm pkg set version="$version" name=workforest displayName=Workforest
+          "$GITHUB_WORKSPACE/packaging/changelog/generate"
           echo "packaging $version as $(npm pkg get name | tr -d '\"')"
           for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
             rm -rf bin && mkdir bin
