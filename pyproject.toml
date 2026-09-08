@@ -39,6 +39,14 @@ dev = [
     "types-pyyaml>=6.0",
 ]
 
+# What makes a build of this project stale. uv's default is this file
+# alone, so `uv run --with .` — which is how packaging/binary/build.sh
+# freezes the CLI the editor plugins ship — reused a wheel built before the
+# last edit to src/, and PyInstaller froze that: a plugin bundling a CLI
+# older than its own checkout.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*" }]
+
 [tool.hatch.version]
 path = "src/workforest/__init__.py"
 

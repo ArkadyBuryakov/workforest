@@ -67,7 +67,20 @@ class ScriptSpec:
         return self.bulk or self.pipeline or ()
 
 
-type ConfigEntry = CommandSpec | OpenerSpec | ScriptSpec
+@dataclass(slots=True, frozen=True)
+class MakeSpec:
+    """The `make` section: which of the makefile's targets `wf make` offers
+    by name, and which of them may run only once at a time. Hiding a target
+    keeps it out of completions and the editor lists; `wf make` runs it all
+    the same."""
+
+    hidden: bool = False  # offer no target at all
+    hide_scripts: tuple[str, ...] = ()  # offer every target but these
+    show_scripts: tuple[str, ...] = ()  # offer only these (wins over hide_scripts)
+    exclusive_scripts: tuple[str, ...] = ()  # starting one stops its running instances
+
+
+type ConfigEntry = CommandSpec | OpenerSpec | ScriptSpec  # a `map` entry
 
 
 def _field_name(key: str) -> str:
@@ -81,13 +94,15 @@ def _key_name(field_name: str) -> str:
 
 @dataclass(slots=True, frozen=True)
 class _FieldSpec:
-    """Kinds: "str", "number", "list", "map" (a null value deletes the
-    inherited entry during merge). Map entries normalize to the `entry` dataclass; a string
-    is shorthand for `{command: <string>}`."""
+    """Kinds: "str", "number", "list", "map" (name → entry) and "section"
+    (a fixed set of keys) — both mappings, so a null value deletes the
+    inherited key during merge. Map entries normalize to the `entry`
+    dataclass; a string is shorthand for `{command: <string>}`. The one
+    section, `make`, normalizes as a whole to MakeSpec in load_config."""
 
     kind: str
     default: Any
-    entry: type[ConfigEntry] | None = None
+    entry: type[ConfigEntry] | None = None  # `map` kinds only
 
 
 _SCHEMA: dict[str, _FieldSpec] = {
@@ -99,6 +114,7 @@ _SCHEMA: dict[str, _FieldSpec] = {
     "setup_scripts": _FieldSpec("list", []),
     "scripts": _FieldSpec("map", {}, ScriptSpec),
     "stop_timeout": _FieldSpec("number", 30.0),
+    "make": _FieldSpec("section", {}),
 }
 
 
@@ -118,6 +134,7 @@ class Config:
     setup_scripts: list[str] = field(default_factory=list)
     scripts: dict[str, ScriptSpec] = field(default_factory=dict)
     stop_timeout: float = 30.0  # seconds a stopped script gets between SIGTERM and SIGKILL
+    make: MakeSpec = field(default_factory=MakeSpec)
     sources: list[ConfigSource] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -130,6 +147,12 @@ class Config:
             "setup_scripts": self.setup_scripts,
             "scripts": {name: _entry_data(spec) for name, spec in self.scripts.items()},
             "stop_timeout": self.stop_timeout,
+            "make": {
+                _key_name(f.name): (
+                    list(value) if isinstance(value := getattr(self.make, f.name), tuple) else value
+                )
+                for f in fields(MakeSpec)
+            },
         }
 
 
@@ -218,6 +241,27 @@ def _validate(data: dict[str, Any], path: Path) -> None:
                     raise ConfigError(f"{path}: {key!r} must be a mapping")
                 for name, entry in value.items():
                     _validate_entry(entry, key=key, name=name, spec=_SCHEMA[key], path=path)
+            case "section":
+                _validate_section(value, key=key, path=path)
+
+
+def _validate_section(value: Any, *, key: str, path: Path) -> None:
+    """The `make` section — the only one: a fixed set of keys, each shaped
+    like its MakeSpec default, a flag or a list of names; a null value
+    resets the key to that default during merge."""
+    if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
+        raise ConfigError(f"{path}: {key!r} must be a mapping")
+    known = {f.name: f.default for f in fields(MakeSpec)}
+    for name, entry in value.items():
+        if name not in known:
+            raise ConfigError(f"{path}: {key}.{name}: unknown key (known keys: {', '.join(known)})")
+        if entry is None:
+            continue
+        if isinstance(known[name], bool):
+            if not isinstance(entry, bool):
+                raise ConfigError(f"{path}: {key}.{name} must be true or false")
+        elif not isinstance(entry, list) or not all(isinstance(item, str) for item in entry):
+            raise ConfigError(f"{path}: {key}.{name} must be a list of strings")
 
 
 def _is_positive_number(value: Any) -> bool:
@@ -333,7 +377,7 @@ def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Scalars/lists replace; mappings merge per key with null deleting."""
     merged = dict(base)
     for key, value in overlay.items():
-        if _SCHEMA[key].kind == "map":
+        if _SCHEMA[key].kind in ("map", "section"):
             combined: dict[str, Any] = dict(merged.get(key, {}))
             for name, entry in value.items():
                 if entry is None:
@@ -383,10 +427,17 @@ def load_config(main_worktree: Path | None = None) -> Config:
         sources.append(source)
 
     for key, spec in _SCHEMA.items():
-        if spec.entry is not None:
+        if spec.kind == "map" and spec.entry is not None:
             merged[key] = {
                 name: _normalize_entry(spec.entry, value) for name, value in merged[key].items()
             }
+    make: dict[str, Any] = merged["make"]
+    merged["make"] = MakeSpec(
+        hidden=make.get("hidden", False),
+        hide_scripts=tuple(make.get("hide_scripts", ())),
+        show_scripts=tuple(make.get("show_scripts", ())),
+        exclusive_scripts=tuple(make.get("exclusive_scripts", ())),
+    )
     _validate_references(merged["openers"], merged["wrappers"], merged["scripts"])
     return Config(**merged, sources=sources)
 

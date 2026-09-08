@@ -15,13 +15,14 @@ import {
   ScriptInfo,
   WorktreeInfo,
   parseCandidates,
+  parseMakeScripts,
   parseScripts,
   scriptDescription,
   shellQuote,
   worktreeNameFor,
 } from './forest';
 import { ForestModel } from './model';
-import { EntryNode, ForestNode, Node, ScriptNode } from './tree';
+import { EntryNode, ForestNode, Node, SCRIPT_ICONS, ScriptNode } from './tree';
 
 export interface Deps {
   cli: Cli;
@@ -440,8 +441,15 @@ interface ScriptItem extends vscode.QuickPickItem {
   script: ScriptInfo;
 }
 
+/** The `scripts` entries plus the makefile targets `wf make` offers here. */
+async function loadScripts(deps: Deps, cwd: string): Promise<ScriptInfo[]> {
+  const configJson = await deps.cli.expect(['config', '--json'], cwd, 'reading the configuration');
+  const make = await deps.cli.run(['--complete', 'make'], cwd);
+  return [...parseScripts(configJson), ...(make.code === 0 ? parseMakeScripts(make.stdout, configJson) : [])];
+}
+
 async function pickScript(deps: Deps, cwd: string, placeHolder: string): Promise<ScriptInfo | undefined> {
-  const scripts = parseScripts(await deps.cli.expect(['config', '--json'], cwd, 'reading the configuration'));
+  const scripts = await loadScripts(deps, cwd);
   if (scripts.length === 0) {
     const choice = await vscode.window.showInformationMessage(
       'Workforest: no scripts are configured. Add a `scripts` entry to .workforest.yaml.',
@@ -454,7 +462,7 @@ async function pickScript(deps: Deps, cwd: string, placeHolder: string): Promise
   }
   const picked = await vscode.window.showQuickPick(
     scripts.map<ScriptItem>((script) => ({
-      label: `$(${script.kind === 'command' ? 'terminal' : script.kind === 'bulk' ? 'layers' : 'list-ordered'}) ${script.name}`,
+      label: `$(${SCRIPT_ICONS[script.kind]}) ${script.name}`,
       description: scriptDescription(script),
       detail: script.detail,
       script,
@@ -505,8 +513,9 @@ export async function runScript(deps: Deps, node?: Node): Promise<void> {
       return;
     }
     // The user's shell runs it: Ctrl-C, colors, and a tty exactly like `wf run`.
-    const terminal = vscode.window.createTerminal({ name: `wf run ${script.name}`, cwd: target.info.path });
-    terminal.sendText(`${shellQuote(deps.cli.executable)} run ${shellQuote(script.name)}`, true);
+    const verb = script.kind === 'make' ? 'make' : 'run';
+    const terminal = vscode.window.createTerminal({ name: `wf ${verb} ${script.name}`, cwd: target.info.path });
+    terminal.sendText(`${shellQuote(deps.cli.executable)} ${verb} ${shellQuote(script.name)}`, true);
     terminal.show();
   });
 }
@@ -521,7 +530,8 @@ export async function stopScript(deps: Deps, node?: Node): Promise<void> {
     if (!script) {
       return;
     }
-    await deps.cli.expect(['stop', script.name], target.info.path, `stopping ${script.name}`);
+    const stop = script.kind === 'make' ? ['stop', '--make', script.name] : ['stop', script.name];
+    await deps.cli.expect(stop, target.info.path, `stopping ${script.name}`);
     void vscode.window.showInformationMessage(`Workforest: stopped ${script.name} in ${target.info.name}.`);
   });
 }

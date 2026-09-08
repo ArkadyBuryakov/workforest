@@ -197,7 +197,8 @@ class StopScriptAction : WorkforestAction() {
         val project = e.project ?: return
         val cwd = e.scriptCwd() ?: return
         chooseScript(e, "Stop Script in ${cwd.fileName}") { script ->
-            runInBackground(project, "Stopping ${script.name}", work = { WorkforestCli.run(cwd, "stop", script.name) }) {
+            val args = if (script.isMake) arrayOf("stop", "--make", script.name) else arrayOf("stop", script.name)
+            runInBackground(project, "Stopping ${script.name}", work = { WorkforestCli.run(cwd, *args) }) {
                 WorkforestNotifications.info(project, "Stopped ${script.name} in ${cwd.fileName}")
             }
         }
@@ -304,6 +305,7 @@ fun scriptIcon(script: ScriptInfo): Icon = when (script.kind) {
     ScriptKind.COMMAND -> AllIcons.Nodes.Console
     ScriptKind.BULK -> AllIcons.Actions.GroupBy
     ScriptKind.PIPELINE -> AllIcons.Actions.ListFiles
+    ScriptKind.MAKE -> AllIcons.Actions.Compile
 }
 
 /**

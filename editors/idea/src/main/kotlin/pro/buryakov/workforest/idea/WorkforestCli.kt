@@ -121,8 +121,17 @@ object WorkforestCli {
     fun branchCandidates(cwd: Path): List<BranchCandidate> =
         Protocol.parseBranches(run(cwd, "--complete", "branches").stdout)
 
-    /** The `scripts` of the merged config. */
-    fun scripts(cwd: Path): List<ScriptInfo> = Protocol.parseScripts(run(cwd, "config", "--json").stdout)
+    /**
+     * The `scripts` of the merged config, then the makefile targets
+     * `make` offers there (none where make or the makefile is missing).
+     */
+    fun scripts(cwd: Path): List<ScriptInfo> {
+        val config = run(cwd, "config", "--json").stdout
+        return Protocol.parseScripts(config) + Protocol.parseMakeScripts(complete(cwd, "make"), config)
+    }
+
+    /** One `--complete` topic; it never fails, so an empty list is its error report. */
+    private fun complete(cwd: Path, topic: String): String = run(cwd, "--complete", topic).stdout
 
     /** `workforest config`: the merged configuration as YAML with its sources. */
     fun configDump(cwd: Path): String = run(cwd, "config").stdout

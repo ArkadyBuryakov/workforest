@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from workforest import gitutil, hooks, launch, output
+from workforest import gitutil, hooks, launch, makefile, output
 from workforest.config import (
     PROJECT_LOCAL_DIRS,
     Config,
@@ -354,9 +354,38 @@ def cmd_run(
     return None
 
 
-def cmd_stop(ctx: Context, name: str, *, everywhere: bool = False) -> CommandResult:
+def cmd_make(
+    ctx: Context,
+    target: str,
+    extra_args: list[str] | None = None,
+    *,
+    background: bool | None = None,
+) -> CommandResult:
+    """`wf make TARGET`: `make TARGET` at the worktree root, run as the
+    script `make:TARGET` so it is recorded, stoppable and counted like any
+    other. The target is make's to accept or reject — a hidden one still
+    runs, and one this build generates is never in our list."""
+    makefile.require(ctx.cwd_root)
+    hooks.run_named_script(
+        ctx.config,
+        makefile.script_name(target),
+        cwd=ctx.cwd_root,
+        env=_current_script_env(ctx),
+        extra_args=extra_args,
+        background=background,
+    )
+    return None
+
+
+def cmd_stop(
+    ctx: Context, name: str, *, everywhere: bool = False, make: bool = False
+) -> CommandResult:
     hooks.stop_script(
-        ctx.config, name, cwd=ctx.cwd_root, env=_current_script_env(ctx), everywhere=everywhere
+        ctx.config,
+        makefile.script_name(name) if make else name,
+        cwd=ctx.cwd_root,
+        env=_current_script_env(ctx),
+        everywhere=everywhere,
     )
     return None
 

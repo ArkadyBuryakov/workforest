@@ -111,14 +111,17 @@ export function parseCandidates(text: string): BranchCandidate[] {
     });
 }
 
-export type ScriptKind = 'command' | 'bulk' | 'pipeline';
+export type ScriptKind = 'command' | 'bulk' | 'pipeline' | 'make';
 
 export interface ScriptInfo {
-  name: string;
+  name: string; // as `wf run NAME` / `wf make TARGET` takes it
   kind: ScriptKind;
   detail: string; // the command, or the members of a group
   background: boolean;
   exclusive: boolean;
+  /** The name it runs under — a make target's is `make:TARGET`: the key of
+   * the `running` counts, and what a job record is filed as. */
+  runningKey: string;
 }
 
 /** The `scripts` map of `workforest config --json`, sorted by name; `hidden` entries are left out. */
@@ -142,13 +145,14 @@ function isHidden(entry: unknown): boolean {
 }
 
 function scriptInfo(name: string, entry: unknown): ScriptInfo {
+  const runningKey = name;
   if (typeof entry === 'string') {
-    return { name, kind: 'command', detail: entry, background: false, exclusive: false };
+    return { name, kind: 'command', detail: entry, background: false, exclusive: false, runningKey };
   }
   if (!isRecord(entry)) {
     throw new Error(`scripts.${name}: unexpected shape`);
   }
-  const flags = { background: entry.background === true, exclusive: entry.exclusive === true };
+  const flags = { background: entry.background === true, exclusive: entry.exclusive === true, runningKey };
   if (Array.isArray(entry.bulk)) {
     return { name, kind: 'bulk', detail: `bulk: ${entry.bulk.join(', ')}`, ...flags };
   }
@@ -158,9 +162,43 @@ function scriptInfo(name: string, entry: unknown): ScriptInfo {
   return { name, kind: 'command', detail: String(entry.command ?? ''), ...flags };
 }
 
+/**
+ * The makefile targets `wf make` offers here: the plain names of
+ * `--complete make` (the CLI has already applied the `make` config's
+ * `hidden`/`hide_scripts`/`show_scripts`), flagged `exclusive` from that
+ * config's `exclusive_scripts`. They run under `make:TARGET`, which is the
+ * name `list --json` counts them by.
+ */
+export function parseMakeScripts(completeOutput: string, configJson: string): ScriptInfo[] {
+  const exclusive = new Set(makeExclusive(configJson));
+  return completeOutput
+    .split('\n')
+    .filter((name) => name.length > 0)
+    .map((name) => ({
+      name,
+      kind: 'make' as const,
+      detail: `make ${name}`,
+      background: false,
+      exclusive: exclusive.has(name),
+      runningKey: `make:${name}`,
+    }));
+}
+
+function makeExclusive(configJson: string): string[] {
+  const data: unknown = JSON.parse(configJson);
+  if (!isRecord(data) || !isRecord(data.config) || !isRecord(data.config.make)) {
+    return [];
+  }
+  const names = data.config.make.exclusive_scripts;
+  return Array.isArray(names) ? names.filter((name): name is string => typeof name === 'string') : [];
+}
+
 /** The flags worth showing next to a script's name in a picker. */
 export function scriptDescription(script: ScriptInfo): string {
   const marks = [];
+  if (script.kind === 'make') {
+    marks.push('make');
+  }
   if (script.background) {
     marks.push('background');
   }

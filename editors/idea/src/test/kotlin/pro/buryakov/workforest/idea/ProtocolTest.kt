@@ -93,6 +93,30 @@ class ProtocolTest {
     }
 
     @Test
+    fun parsesMakeTargets() {
+        val config = """{"config": {"make": {"exclusive_scripts": ["dev"]}}, "sources": []}"""
+        val scripts = Protocol.parseMakeScripts("check\ndev\n", config)
+        assertEquals(
+            listOf(
+                ScriptInfo("check", ScriptKind.MAKE, "make check", background = false, exclusive = false),
+                ScriptInfo("dev", ScriptKind.MAKE, "make dev", background = false, exclusive = true),
+            ),
+            scripts,
+        )
+        assertEquals("make:check", scripts[0].runningKey)
+        assertEquals("make", scripts[0].flags)
+        assertEquals("make, exclusive", scripts[1].flags)
+    }
+
+    @Test
+    fun makeTargetsMissingOrMalformed() {
+        assertEquals(emptyList<ScriptInfo>(), Protocol.parseMakeScripts("", """{"config": {}}"""))
+        // no `make` section, or output we cannot read: no target is exclusive
+        assertEquals(false, Protocol.parseMakeScripts("check\n", """{"config": {}}""")[0].exclusive)
+        assertEquals(false, Protocol.parseMakeScripts("check\n", "nope")[0].exclusive)
+    }
+
+    @Test
     fun bookkeepingPaths() {
         assertEquals(true, WorktreeService.isBookkeeping("/r/.git/worktrees/feat"))
         assertEquals(true, WorktreeService.isBookkeeping("/r/.git/worktrees/feat/HEAD"))

@@ -170,10 +170,11 @@ export class ForestTree implements vscode.TreeDataProvider<Node> {
 
 const SECTION_TITLES: Record<Section, string> = { scripts: 'Scripts', worktrees: 'Worktrees' };
 
-const SCRIPT_ICONS: Record<ScriptInfo['kind'], string> = {
+export const SCRIPT_ICONS: Record<ScriptInfo['kind'], string> = {
   command: 'terminal',
   bulk: 'layers',
   pipeline: 'list-ordered',
+  make: 'tools',
 };
 
 /**
@@ -188,7 +189,7 @@ const SCRIPT_ICONS: Record<ScriptInfo['kind'], string> = {
 function scriptItem(node: ScriptNode, herePath: string | undefined): vscode.TreeItem {
   const { script } = node;
   const item = new vscode.TreeItem(script.name, vscode.TreeItemCollapsibleState.None);
-  const state = runningState(node.forest, script.name, herePath);
+  const state = runningState(node.forest, script.runningKey, herePath);
   item.description = [runningNote(state), scriptDescription(script)].filter((part) => part.length > 0).join(' · ');
   item.iconPath = new vscode.ThemeIcon(SCRIPT_ICONS[script.kind], runningColor(state));
   item.contextValue = 'script';
@@ -196,6 +197,7 @@ function scriptItem(node: ScriptNode, herePath: string | undefined): vscode.Tree
     [
       `**${script.name}**`,
       `\`\`\`sh\n${script.detail}\n\`\`\``,
+      script.kind === 'make' ? 'makefile target' : '',
       script.background ? 'background' : '',
       script.exclusive ? 'exclusive' : '',
       runningLabel(state),

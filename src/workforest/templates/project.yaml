@@ -19,3 +19,9 @@
 #   dev:
 #     command: npm run dev
 #     exclusive: true
+
+# Which makefile targets `wf make` offers by name (completions, editor
+# plugins) and which of them run one at a time
+# make:
+#   hide_scripts: [install]
+#   exclusive_scripts: [dev]

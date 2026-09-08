@@ -81,6 +81,7 @@ symlinks: []
 setup_scripts: []
 scripts: {}
 stop_timeout: 30
+make: {}
 .EE
 .TP
 .B worktrees_dir
@@ -261,6 +262,39 @@ and for
 .B exclusive
 preemption.
 A number above 0; default 30.
+.TP
+.B make
+Which of the makefile's targets
+.B "workforest make"
+(see
+.BR workforest (1))
+offers by name \(em in shell completion and in the script lists of the
+editor plugins \(em and how they run.
+The command itself is never restricted by these keys: a hidden target
+still runs when named.
+Only meaningful where
+.BR make (1)
+is installed and the worktree root holds a makefile.
+.RS
+.TP
+.B hidden
+Offer no target at all.
+Default false.
+.TP
+.B hide_scripts
+A list of target names to leave out.
+.TP
+.B show_scripts
+A list of the only target names to offer; wins over
+.BR hide_scripts .
+.TP
+.B exclusive_scripts
+A list of target names that are
+.B exclusive
+(see
+.BR scripts ):
+starting one stops every running instance of it in the project first.
+.RE
 .SH OPENERS AND WRAPPERS
 An
 .I opener

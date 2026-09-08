@@ -25,20 +25,35 @@ data class Forest(val main: Worktree, val worktreesDir: Path, val worktrees: Lis
 /** One line of `workforest --complete branches`: a branch `create` accepts. */
 data class BranchCandidate(val name: String, val location: String)
 
-enum class ScriptKind { COMMAND, BULK, PIPELINE }
+enum class ScriptKind { COMMAND, BULK, PIPELINE, MAKE }
 
-/** A `scripts` entry of `config --json`. */
+/** A `scripts` entry of `config --json`, or a makefile target of `--complete make`. */
 data class ScriptInfo(
-    val name: String,
+    val name: String, // as `run NAME` / `make TARGET` takes it
     val kind: ScriptKind,
     val detail: String, // the command, or the members of a group
     val background: Boolean,
     val exclusive: Boolean,
 ) {
-    /** The flags worth showing next to the name: "background, exclusive". */
+    val isMake: Boolean get() = kind == ScriptKind.MAKE
+
+    /**
+     * The name it runs under: a makefile target's is `make:TARGET`, which
+     * is the key of the `running` counts and what a job record is filed as.
+     */
+    val runningKey: String get() = if (isMake) "$MAKE_PREFIX$name" else name
+
+    /** The flags worth showing next to the name: "make, exclusive". */
     val flags: String
-        get() = listOfNotNull("background".takeIf { background }, "exclusive".takeIf { exclusive }).joinToString(", ")
+        get() = listOfNotNull(
+            "make".takeIf { isMake },
+            "background".takeIf { background },
+            "exclusive".takeIf { exclusive },
+        ).joinToString(", ")
 }
+
+/** The script-name prefix a makefile target runs under. */
+const val MAKE_PREFIX = "make:"
 
 object Protocol {
     /** `{"main": {...}, "worktrees_dir": "...", "worktrees": [{...}]}`. */
@@ -90,6 +105,27 @@ object Protocol {
             else -> ScriptKind.COMMAND to (o.get("command")?.asString ?: "")
         }
         return ScriptInfo(name, kind, detail, background = flag("background"), exclusive = flag("exclusive"))
+    }
+
+    /**
+     * The makefile targets `make` offers here: the plain names of
+     * `--complete make` (the CLI has already applied the `make` config's
+     * `hidden`/`hide_scripts`/`show_scripts`), flagged `exclusive` from
+     * that config's `exclusive_scripts` in the same `config --json` dump.
+     */
+    fun parseMakeScripts(completeStdout: String, configStdout: String): List<ScriptInfo> {
+        val exclusive = makeExclusive(configStdout)
+        return completeStdout.lineSequence().filter { it.isNotBlank() }
+            .map { ScriptInfo(it, ScriptKind.MAKE, "make $it", background = false, exclusive = it in exclusive) }
+            .toList()
+    }
+
+    private fun makeExclusive(configStdout: String): Set<String> = try {
+        val make = JsonParser.parseString(configStdout).asJsonObject.getAsJsonObject("config").get("make")
+        if (make == null || !make.isJsonObject) emptySet()
+        else make.asJsonObject.getAsJsonArray("exclusive_scripts").map { it.asString }.toSet()
+    } catch (e: RuntimeException) { // no `make` section, or a shape this plugin does not know
+        emptySet()
     }
 
     /** `NAME<TAB>LOCATION` per line; a bare name means an unknown location. */

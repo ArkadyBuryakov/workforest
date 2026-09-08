@@ -18,6 +18,7 @@ import {
   locate,
   orderByRecency,
   parseForest,
+  parseMakeScripts,
   parseScripts,
 } from './forest';
 import { Recency, createdAt } from './recency';
@@ -168,14 +169,20 @@ export class ForestModel implements vscode.Disposable {
     );
   }
 
+  /** The forest's `scripts`, then the makefile targets `wf make` offers
+   * there (none where make or the makefile is missing). */
   private async scriptsIn(forest: Forest): Promise<ScriptInfo[]> {
     const result = await this.cli.run(['config', '--json'], forest.main.path);
     if (result.code !== 0) {
       this.log.appendLine(`config --json failed in ${forest.main.path} (exit ${result.code})`);
       return [];
     }
+    const make = await this.cli.run(['--complete', 'make'], forest.main.path);
     try {
-      return parseScripts(result.stdout);
+      return [
+        ...parseScripts(result.stdout),
+        ...(make.code === 0 ? parseMakeScripts(make.stdout, result.stdout) : []),
+      ];
     } catch (error) {
       this.log.appendLine(`config --json: ${String(error)}`);
       return [];

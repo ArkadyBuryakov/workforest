@@ -9,6 +9,7 @@ import {
   orderByRecency,
   parseCandidates,
   parseForest,
+  parseMakeScripts,
   parseScripts,
   runningLabel,
   runningNote,
@@ -142,6 +143,33 @@ test('parseScripts flattens every entry form, sorted', () => {
     ],
   );
   assert.deepEqual(parseScripts('{"config": {}}'), []);
+});
+
+test('parseMakeScripts turns --complete make lines into make-kind scripts', () => {
+  const configJson = JSON.stringify({ config: { make: { exclusive_scripts: ['dev'] } }, sources: [] });
+  const scripts = parseMakeScripts('check\ndev\n', configJson);
+  assert.deepEqual(
+    scripts.map((s) => [s.name, s.kind, s.detail, s.runningKey, scriptDescription(s)]),
+    [
+      ['check', 'make', 'make check', 'make:check', 'make'],
+      ['dev', 'make', 'make dev', 'make:dev', 'make, exclusive'],
+    ],
+  );
+  assert.deepEqual(parseMakeScripts('', configJson), []);
+  // no `make` section, or none of the shapes we expect: no target is exclusive
+  assert.equal(parseMakeScripts('check\n', '{"config": {}}')[0]?.exclusive, false);
+});
+
+test('runningState counts a make target by its make: key', () => {
+  const forest = parseForest(
+    JSON.stringify({
+      main: { name: 'api', branch: 'main', path: '/m', dirty: false, running: { 'make:check': 2 } },
+      worktrees_dir: '/w',
+      worktrees: [],
+    }),
+  );
+  const script = parseMakeScripts('check\n', '{"config": {}}')[0]!;
+  assert.deepEqual(runningState(forest, script.runningKey, '/m'), { here: 2, others: 0, otherWorktrees: 0 });
 });
 
 test('failureMessage takes the last stderr line without the prefix', () => {
