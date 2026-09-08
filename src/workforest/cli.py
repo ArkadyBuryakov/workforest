@@ -22,6 +22,7 @@ SUBCOMMAND_HELP: dict[str, str] = {
     "delete": "delete worktree(s)",
     "checkout": "delete a worktree and check its branch out in main",
     "run": "run a named script from the merged config",
+    "make": "run a makefile target (like `make TARGET` at the worktree root)",
     "stop": "stop a running script (this worktree's instances, or --all)",
     "tui": "interactive mode (requires fzf)",
     "init": "write a commented .workforest.yaml starter",
@@ -106,9 +107,14 @@ def _handle_run(ns: argparse.Namespace) -> CommandResult:
     return commands.cmd_run(ctx, ns.script, ns.args, background=True if ns.background else None)
 
 
+def _handle_make(ns: argparse.Namespace) -> CommandResult:
+    ctx = commands.build_context()
+    return commands.cmd_make(ctx, ns.target, ns.args, background=True if ns.background else None)
+
+
 def _handle_stop(ns: argparse.Namespace) -> CommandResult:
     ctx = commands.build_context()
-    return commands.cmd_stop(ctx, ns.script, everywhere=ns.all)
+    return commands.cmd_stop(ctx, ns.script, everywhere=ns.all, make=ns.make)
 
 
 def _handle_init(ns: argparse.Namespace) -> CommandResult:
@@ -213,10 +219,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=_handle_run)
 
+    p = sub.add_parser("make", help=SUBCOMMAND_HELP["make"])
+    p.add_argument(
+        "-b",
+        "--background",
+        action="store_true",
+        help="detach, with output to a log file (before TARGET; after it, it belongs to ARGS)",
+    )
+    p.add_argument("target", metavar="TARGET")
+    p.add_argument(
+        "args",
+        nargs=argparse.REMAINDER,
+        metavar="ARGS",
+        help="appended (shell-quoted) to the make command",
+    )
+    p.set_defaults(func=_handle_make)
+
     p = sub.add_parser("stop", help=SUBCOMMAND_HELP["stop"])
     p.add_argument("script", metavar="SCRIPT")
     p.add_argument(
         "--all", action="store_true", help="every worktree's instances, not just this one's"
+    )
+    p.add_argument(
+        "--make", action="store_true", help="SCRIPT is a makefile target (`make:SCRIPT`)"
     )
     p.set_defaults(func=_handle_stop)
 

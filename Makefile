@@ -77,7 +77,7 @@ binary:
 # --- VS Code extension (editors/vscode) ---------------------------------
 
 # A fresh .vsix from this worktree, carrying the CLI built alongside it.
-vscode-build: binary
+vscode-build:
 	rm -rf editors/vscode/bin && mkdir -p editors/vscode/bin
 	cp dist/binary/workforest editors/vscode/bin/workforest
 	cd editors/vscode && rm -f *.vsix && npm install --no-audit --no-fund
@@ -95,13 +95,13 @@ vscode-install:
 vscode-uninstall:
 	code --uninstall-extension ArkadyBuryakov.workforest-vscode
 
-vscode: vscode-build vscode-install
+vscode: binary vscode-build vscode-install
 
 # --- JetBrains plugin (editors/idea) ------------------------------------
 
 # Only this machine's platform, so the zip is not the four-platform one CI
 # builds; that is all a local install can run anyway.
-idea-build: binary
+idea-build:
 	rm -rf editors/idea/bin && mkdir -p editors/idea/bin/$(PLATFORM)
 	cp dist/binary/workforest editors/idea/bin/$(PLATFORM)/workforest
 	@$(STAMP); \
@@ -155,6 +155,6 @@ idea-uninstall:
 	rm -rf "$(IDEA_PLUGINS)/workforest-idea"
 	@echo "removed — restart the IDE"
 
-idea: idea-build idea-install
+idea: binary idea-build idea-install
 
 plugins: vscode idea

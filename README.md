@@ -84,6 +84,7 @@ wf open login -o 'lazygit'  # open with any command instead
 wf run test                 # run a named script from config
 wf run -b backend           # detached; `wf stop backend` ends it
 wf run make check -j2       # extra args are appended to the script command
+wf make check               # any makefile target, tracked like a script
 wf checkout login           # fold the branch back into the main checkout
 wf delete fix-y             # remove a worktree (asks about dirty changes)
 wf                          # interactive TUI (fzf)
@@ -119,6 +120,7 @@ symlinks: []            # untracked assets linked from main into new worktrees
 setup_scripts: []       # shell snippets run in a fresh worktree
 scripts: {}             # name -> command or group for `wf run NAME` (see Scripts)
 stop_timeout: 30        # seconds a stopped script gets after SIGTERM before SIGKILL
+make: {}                # which makefile targets `wf make` offers by name (see Makefile targets)
 ```
 
 ### Openers
@@ -315,6 +317,42 @@ Members cannot read the terminal, but Ctrl-C reaches them all. A bulk
 waits for every member — so `bulk: [lint, test, typecheck]` shows every
 failure, not just the first — and fails if any of them did.
 
+### Makefile targets
+
+Where `make` is installed and the worktree root holds a `GNUmakefile`,
+`makefile`, or `Makefile`, every target it defines is runnable without
+being configured:
+
+```sh
+wf make check               # `make check` at the worktree root
+wf make check -j4           # extra args are appended, as for `wf run`
+wf make -b watch            # detached, output to a log file
+wf stop --make watch        # stop it again
+```
+
+`wf make` is `wf run` with a synthesized entry: the same process group and
+terminal handling, exit status, records, `exclusive` preemption and
+cleanup. A target runs under the script name `make:TARGET` — which is what
+job records, `wf stop --make`, and the `running` counts of `wf list --json`
+show — so the `scripts` map is never shadowed.
+
+The `make` section says which targets are *offered by name*, in shell
+completion and in the editor plugins' script lists:
+
+```yaml
+make:
+  hidden: false                   # true: offer no target at all
+  hide_scripts: [install]         # offer every target but these
+  show_scripts: []                # offer only these (wins over hide_scripts)
+  exclusive_scripts: [dev, watch] # starting one stops its running instances first
+```
+
+Hiding is about what is *offered*, not what may run: `wf make install`
+still runs a hidden target. The targets are read out of the makefile (and
+what it includes) rather than from `make` itself, so listing them never
+evaluates a `$(shell ...)`; targets a build generates simply do not appear
+in the list, and run just the same.
+
 ### Script environment
 
 `setup_scripts`, `scripts`, and hooks run via `$SHELL -c` with:
@@ -368,7 +406,8 @@ workforest list   [--porcelain | --json]
 workforest delete NAME...  [--force] [--delete-branch | --keep-branch]
 workforest checkout NAME   [--force]
 workforest run    [-b] SCRIPT [ARGS...]
-workforest stop   SCRIPT [--all]
+workforest make   [-b] TARGET [ARGS...]
+workforest stop   SCRIPT [--all] [--make]
 workforest tui    [MODE]
 workforest init   [--local]
 workforest config [--json]
@@ -396,20 +435,23 @@ directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
 checkout, in the same `name`/`branch`/`path`/`dirty`/`running` shape as each
 entry of `worktrees`, `running` being an object mapping the name of each
-script running there to how many instances of it run) and the resolved
-`worktrees_dir` — and is what the editor extensions read.
+script running there — a makefile target under `make:TARGET` — to how many
+instances of it run) and the resolved `worktrees_dir` — and is what the
+editor extensions read.
 
 ## JetBrains IDE plugin
 
 `editors/idea/` holds a plugin for IntelliJ IDEA, PyCharm, WebStorm, and
 the other IntelliJ-based IDEs (2025.2 or later) that puts the forest in the
-IDE: a **Workforest** tool window with the project's scripts (badged
-where they are running) and the main checkout plus the worktrees (most
+IDE: a **Workforest** tool window with the project's scripts and makefile
+targets (badged `make`, and where they are running) and the main checkout
+plus the worktrees (most
 recently opened first, dirty markers, the one this window is in), with
 tooltips, inline buttons, and context menus; commands to create, open,
 delete, and checkout worktrees (the last two on this window's worktree
 when nothing is selected),
-run and stop `scripts` in the IDE terminal, open a terminal in a worktree,
+run and stop `scripts` and makefile targets in the IDE terminal, open a
+terminal in a worktree,
 show the merged configuration, and scaffold the project or the
 `.idea/.workforest.yaml` local config; plus a status bar widget. It is a
 thin client: every action runs the `workforest` command (`list --json`,
@@ -441,16 +483,19 @@ the `.idea/` carry-over recipe, troubleshooting).
 
 `editors/vscode/` holds a VS Code extension that puts the forest in the
 editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
-its header and two collapsible sections, Scripts (run/stop with one
-click, marked where they are running) and Worktrees (main checkout, then
+its header and two collapsible sections, Scripts — the `scripts` entries
+and the makefile targets, badged `make` — (run/stop with one click, marked
+where they are running) and Worktrees (main checkout, then
 managed worktrees by recency, dirty markers, the worktree this window is
 in), commands to create, open, delete, and checkout worktrees (the last
-two on this window's worktree when invoked on no row), run and stop `scripts` in
-the integrated terminal, show the merged configuration, and scaffold the
+two on this window's worktree when invoked on no row), run and stop
+`scripts` and makefile targets in the integrated terminal, show the merged
+configuration, and scaffold the
 project or the `.vscode/.workforest.yaml` local config, plus a status bar
 item. It is a thin client: every action runs the `workforest` command
-(`list --json`, `config --json`, `--complete branches`, and the plain
-subcommands with `--force`/`--keep-branch` in place of terminal prompts),
+(`list --json`, `config --json`, `--complete branches`, `--complete make`,
+and the plain subcommands with `--force`/`--keep-branch` in place of
+terminal prompts),
 so the editor and your shell always agree.
 
 Install it from the Extensions view, or from the

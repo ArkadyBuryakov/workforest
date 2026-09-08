@@ -6,11 +6,11 @@ names; `commands`, `openers` and `branches` emit `NAME<TAB>DESCRIPTION` so
 shells that can render descriptions (zsh) do, while others take field 1.
 """
 
-from workforest import commands, gitutil, launch
+from workforest import commands, gitutil, launch, makefile
 from workforest.config import Config, load_config
 from workforest.errors import WorkforestError
 
-TOPICS = ("commands", "branches", "worktrees", "scripts", "openers", "claude-sessions")
+TOPICS = ("commands", "branches", "worktrees", "scripts", "make", "openers", "claude-sessions")
 
 
 def complete(topic: str) -> list[str]:
@@ -30,6 +30,8 @@ def _complete(topic: str) -> list[str]:
             return _worktrees()
         case "scripts":
             return sorted(name for name, spec in _config().scripts.items() if not spec.hidden)
+        case "make":
+            return _make()
         case "openers":
             return _openers()
         case "claude-sessions":
@@ -49,6 +51,14 @@ def _commands() -> list[str]:
     from workforest.cli import SUBCOMMAND_HELP, _known_subcommands
 
     return [f"{name}\t{SUBCOMMAND_HELP[name]}" for name in sorted(_known_subcommands())]
+
+
+def _make() -> list[str]:
+    """The makefile targets `wf make` offers here, in the makefile's own
+    order (its default goal first); empty where make or the makefile is
+    missing, or the `make` config hides them."""
+    ctx = commands.build_context()
+    return makefile.visible_targets(ctx.config, ctx.cwd_root)
 
 
 def _openers() -> list[str]:

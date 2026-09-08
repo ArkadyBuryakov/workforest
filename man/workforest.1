@@ -47,9 +47,15 @@ workforest, wf \- git worktree forest management
 .I SCRIPT
 .RI [ ARGS .\|.\|.]
 .YS
+.SY "workforest make"
+.RB [ \-b ]
+.I TARGET
+.RI [ ARGS .\|.\|.]
+.YS
 .SY "workforest stop"
 .I SCRIPT
 .RB [ \-\-all ]
+.RB [ \-\-make ]
 .YS
 .SY "workforest tui"
 .RI [ MODE ]
@@ -295,7 +301,56 @@ Must precede
 .IR SCRIPT ;
 after it, it belongs to
 .IR ARGS .
-.SS stop \fISCRIPT\fR [\fB\-\-all\fR]
+.SS make [\fB\-b\fR] \fITARGET\fR [\fIARGS\fR...]
+Run
+.BI "make " TARGET
+from the root of the current worktree, exactly as
+.BR run (above)
+runs a
+.B scripts
+entry: the same process group, terminal handling, exit status,
+.B \-b
+flag, records, and
+.BR stop .
+Extra arguments are shell-quoted and appended, so
+.B "wf make check \-j4"
+runs
+.BR "make check \-j4" .
+Available where
+.BR make (1)
+is installed and the worktree root holds a
+.BR GNUmakefile ", " makefile ", or " Makefile .
+.PP
+A target runs under the script name
+.BI make: TARGET \fR,
+which is what
+.BR "list \-\-json" ,
+the job records, and
+.B "stop \-\-make"
+use; the
+.B scripts
+map is never shadowed.
+The
+.B make
+configuration section (see
+.BR workforest (5))
+decides which targets are offered by name in completions and the editor
+plugins, and which of them are
+.BR exclusive ;
+it never restricts this command, which passes
+.I TARGET
+to
+.BR make (1)
+as given.
+.TP
+.BR \-b ", " \-\-background
+As for
+.BR run .
+Must precede
+.IR TARGET ;
+after it, it belongs to
+.IR ARGS .
+.SS stop \fISCRIPT\fR [\fB\-\-all\fR] [\fB\-\-make\fR]
 Stop every running instance of the script in the current worktree \(em
 foreground or background, started from any terminal \(em with SIGTERM,
 then SIGKILL after
@@ -308,6 +363,13 @@ Fails when nothing is running.
 .TP
 .B \-\-all
 Every worktree's instances of the script, not just this one's.
+.TP
+.B \-\-make
+.I SCRIPT
+is a makefile target: stop
+.BI make: SCRIPT
+instead (see
+.BR make ).
 .SS tui [\fIMODE\fR]
 Interactive mode, driven by
 .BR fzf (1).

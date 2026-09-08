@@ -14,9 +14,11 @@ collapsible sections:
 
 - **Scripts**: the `scripts` of this window's repository — a command, a
   `bulk`, or a `pipeline` (each with its own icon), `background` /
-  `exclusive` flagged, the command in the tooltip. ▶ runs one in this
-  window's worktree (`workforest run NAME` in a new terminal tab), ■ stops
-  it; double-click runs. A running script wears a `●` per place, side by
+  `exclusive` flagged, the command in the tooltip — then, where `make` is
+  installed and the repository root holds a makefile, its targets, badged
+  `make`. ▶ runs one in this window's worktree (`workforest run NAME`, or
+  `workforest make TARGET`, in a new terminal tab), ■ stops it;
+  double-click runs. A running script wears a `●` per place, side by
   side: light blue for this window's worktree, orange for the others,
   each with the count of instances once there is more than one. The
   tooltip says the same in words. The section follows
@@ -46,8 +48,8 @@ it) and only ask when this window is the main checkout.
 | Open Worktree… | opens the main checkout or a worktree in a new window, this window, or asks — see the *Open worktrees in* setting. |
 | Delete Worktree… | `workforest delete NAME --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Without a selected row it targets the worktree this window is in. Deleting the worktree this window shows replaces the window with the main checkout. |
 | Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout — this window's, without a selected row; offers to open it when no window shows it. |
-| Run Script… | `workforest run NAME` in a new terminal tab in the chosen worktree (this window's by default; from a worktree's context menu, that worktree), so Ctrl-C, colors, and background scripts behave exactly as in your shell. Needs the bundled Terminal plugin. |
-| Stop Script… | `workforest stop NAME` in the chosen worktree. |
+| Run Script… | `workforest run NAME` — or `workforest make TARGET` for a makefile target — in a new terminal tab in the chosen worktree (this window's by default; from a worktree's context menu, that worktree), so Ctrl-C, colors, and background scripts behave exactly as in your shell. Needs the bundled Terminal plugin. |
+| Stop Script… | `workforest stop NAME` (`workforest stop --make TARGET` for a makefile target) in the chosen worktree. |
 | Open in Terminal | a terminal tab in the worktree's directory. |
 | Show Merged Configuration | `workforest config` in a read-only editor tab. |
 | Initialize Project Config | `workforest init`: scaffolds `.workforest.yaml` and opens it. |

@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
-from workforest import gitutil, jobs, output
+from workforest import gitutil, jobs, makefile, output
 from workforest.config import Config, ScriptSpec
 from workforest.errors import ScriptKilledError, WorkforestError
 
@@ -759,11 +759,17 @@ def _orphan_cleanup(
 
 
 def _resolve_script(config: Config, name: str) -> ScriptSpec:
+    """A `scripts` entry, or — for a `make:TARGET` name — the synthetic
+    entry that target runs as. A configured name always wins, so a
+    `scripts` key spelled `make:...` is never shadowed."""
     spec = config.scripts.get(name)
-    if spec is None:
-        available = ", ".join(sorted(config.scripts)) or "none defined"
-        raise WorkforestError(f"no script named {name!r} (available: {available})")
-    return spec
+    if spec is not None:
+        return spec
+    target = makefile.target_of(name)
+    if target is not None:
+        return makefile.spec_for(config, target)
+    available = ", ".join(sorted(config.scripts)) or "none defined"
+    raise WorkforestError(f"no script named {name!r} (available: {available})")
 
 
 def _stop_timeout(config: Config, spec: ScriptSpec) -> float:

@@ -308,7 +308,7 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
     }
 
     /** Where [script] is running: how many instances here, and how many elsewhere. */
-    private fun runningOf(script: ScriptInfo): RunningState = RunningState.of(worktrees, script.name, here)
+    private fun runningOf(script: ScriptInfo): RunningState = RunningState.of(worktrees, script.runningKey, here)
 
     private fun show(view: ForestView) {
         worktrees = view.worktrees
@@ -345,7 +345,7 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
 
     private fun identity(userObject: Any?): Any? = when (userObject) {
         is Worktree -> userObject.path
-        is ScriptInfo -> "script:${userObject.name}"
+        is ScriptInfo -> "script:${userObject.runningKey}"
         else -> userObject
     }
 

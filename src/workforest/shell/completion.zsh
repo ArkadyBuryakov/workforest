@@ -13,7 +13,10 @@ _workforest_complete() {
         case "$cmd" in
             create) topic=branches ;;
             open|delete|checkout) topic=worktrees ;;
-            run|stop) topic=scripts ;;
+            make) topic=make ;;
+            run) topic=scripts ;;
+            # `wf stop --make TARGET` names a makefile target, not a script.
+            stop) if (( ${words[(I)--make]} )); then topic=make; else topic=scripts; fi ;;
             claude) topic=claude-sessions ;;
             tui|list|init|config|shell-init) topic=none ;;
             *) topic=worktrees ;;

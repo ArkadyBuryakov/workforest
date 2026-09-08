@@ -20,10 +20,12 @@ class RunScriptAction : WorkforestAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val cwd = e.scriptCwd() ?: return
-        chooseScript(e, "Run Script in ${cwd.fileName}") { runInTerminal(project, cwd, it.name) }
+        chooseScript(e, "Run Script in ${cwd.fileName}") {
+            runInTerminal(project, cwd, it.name, if (it.isMake) "make" else "run")
+        }
     }
 
-    private fun runInTerminal(project: Project, cwd: Path, script: String) {
+    private fun runInTerminal(project: Project, cwd: Path, script: String, verb: String) {
         val executable = try {
             WorkforestCli.executable()
         } catch (e: WorkforestException) {
@@ -31,8 +33,8 @@ class RunScriptAction : WorkforestAction() {
             return
         }
         val widget = TerminalToolWindowManager.getInstance(project)
-            .createShellWidget(cwd.toString(), "wf run $script", true, true)
-        widget.sendCommandToExecute("${Protocol.shellQuote(executable.toString())} run ${Protocol.shellQuote(script)}")
+            .createShellWidget(cwd.toString(), "wf $verb $script", true, true)
+        widget.sendCommandToExecute("${Protocol.shellQuote(executable.toString())} $verb ${Protocol.shellQuote(script)}")
     }
 }
 
