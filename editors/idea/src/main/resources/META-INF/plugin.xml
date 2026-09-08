@@ -31,6 +31,10 @@
     needed. Where this build carries no executable — a platform workforest runs on but ships no frozen
     build for — install it (<code>uv tool install workforest</code>, Homebrew, or the AUR) and the
     plugin picks it up from PATH.
+    <p>
+    Workforest is free, open source, and built by one person in the open. If it saved you a context
+    switch today, please rate it five stars here and
+    <a href="https://github.com/ArkadyBuryakov/workforest">star the repository on GitHub</a>.
     ]]></description>
 
     <change-notes><![CDATA[

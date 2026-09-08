@@ -96,6 +96,18 @@ symlinks, setup scripts, and scripts all live in the
 [Workforest configuration](https://github.com/ArkadyBuryakov/workforest#configuration),
 which you can also point at VS Code from the terminal (`wf create feat -o code`).
 
+## Support the project
+
+Workforest is free, open source, and built by one person in the open. If it
+saved you a context switch today, two clicks go a long way:
+
+- ⭐⭐⭐⭐⭐ rate it on the
+  [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ArkadyBuryakov.workforest-vscode&ssr=false#review-details)
+  or on [Open VSX](https://open-vsx.org/extension/ArkadyBuryakov/workforest) —
+  whichever you installed it from.
+- ⭐ star the
+  [repository on GitHub](https://github.com/ArkadyBuryakov/workforest).
+
 ## Troubleshooting
 
 The **Workforest** output channel (View → Output) logs every `workforest`
