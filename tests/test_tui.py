@@ -106,6 +106,16 @@ class TestModesAndCandidates:
         for mode in ("open", "checkout", "delete"):
             assert tui.candidates(ctx, mode) == ["feat"]
 
+    def test_stale_worktree_is_only_offered_for_delete(self, repo: Repo) -> None:
+        import shutil
+
+        ctx = commands.build_context(repo.path)
+        commands.cmd_create(ctx, "feat", no_open=True)
+        shutil.rmtree(ctx.worktrees_dir / "feat")
+        assert tui.candidates(ctx, "open") == []
+        assert tui.candidates(ctx, "checkout") == []
+        assert tui.candidates(ctx, "delete") == ["feat"]
+
 
 class TestExecute:
     def test_create_and_open_pass_opener(self, repo: Repo) -> None:

@@ -13,18 +13,20 @@ _workforest_complete() {
         case "$cmd" in
             create) topic=branches ;;
             open|delete|checkout) topic=worktrees ;;
+            lock) topic=lockable ;;
+            unlock) topic=unlockable ;;
             make) topic=make ;;
             run) topic=scripts ;;
             # `wf stop --make TARGET` names a makefile target, not a script.
             stop) if (( ${words[(I)--make]} )); then topic=make; else topic=scripts; fi ;;
             claude) topic=claude-sessions ;;
-            tui|list|init|config|shell-init) topic=none ;;
+            tui|list|prune|init|config|shell-init) topic=none ;;
             *) topic=worktrees ;;
         esac
     fi
     if [[ "$topic" != none ]]; then
         items=(${(f)"$(command workforest --complete "$topic" 2>/dev/null)"})
-        if [[ "$topic" == (commands|openers|branches) ]]; then
+        if [[ "$topic" == (commands|openers|branches|unlockable) ]]; then
             # NAME<TAB>DESCRIPTION → described candidates.
             for line in "${items[@]}"; do
                 name="${line%%$'\t'*}"

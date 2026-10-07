@@ -14,12 +14,14 @@ _workforest_complete() {
         case "$cmd" in
             create) topic=branches ;;
             open|delete|checkout) topic=worktrees ;;
+            lock) topic=lockable ;;
+            unlock) topic=unlockable ;;
             make) topic=make ;;
             run) topic=scripts ;;
             # `wf stop --make TARGET` names a makefile target, not a script.
             stop) topic=scripts; case " ${COMP_WORDS[*]} " in *" --make "*) topic=make ;; esac ;;
             claude) topic=claude-sessions ;;
-            tui|list|init|config|shell-init) topic=none ;;
+            tui|list|prune|init|config|shell-init) topic=none ;;
             *) topic=worktrees ;;
         esac
     fi

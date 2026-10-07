@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-from workforest import commands, completions
+from workforest import commands, completions, gitutil
 from workforest.commands import CommandResult, Context
 from workforest.errors import WorkforestError
 
@@ -94,8 +94,12 @@ def candidates(ctx: Context, mode: str) -> list[str]:
             return [
                 f"{s.id}\t{s.description}" for s in claude.list_new_sessions(ctx.main, ctx.cwd_root)
             ]
-        case _:
+        case "delete":
             return [w.name for w in commands.managed_worktrees(ctx)]
+        case _:
+            # A stale worktree has no directory to open or to check out
+            # from; `delete` is what clears it.
+            return [w.name for w in commands.managed_worktrees(ctx) if not gitutil.is_stale(w)]
 
 
 @dataclass(slots=True)

@@ -129,8 +129,8 @@ class TestStdoutContract:
         run_cli("create", "feat", "--no-open", cwd=repo.path)
         result = run_cli("list", "--porcelain", cwd=repo.path)
         assert result.code == 0
-        name, branch, path, dirty = result.out.rstrip("\n").split("\t")
-        assert (name, branch, dirty) == ("feat", "feat", "0")
+        name, branch, path, dirty, locked, prunable = result.out.rstrip("\n").split("\t")
+        assert (name, branch, dirty, locked, prunable) == ("feat", "feat", "0", "", "")
         assert path.endswith("worktrees/api/feat")
 
     def test_list_json_on_stdout(self, run_cli: Run, repo: Repo) -> None:

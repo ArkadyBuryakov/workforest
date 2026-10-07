@@ -55,6 +55,60 @@ class TestPorcelainParsing:
         assert len(worktrees) == 2
         assert worktrees[1].branch == "x"
 
+    def test_lock_and_prunable_keep_their_reasons(self) -> None:
+        main, linked = gitutil.parse_worktree_porcelain(LOCKED_AND_UNKNOWN)
+        assert (main.locked, main.prunable) == (None, None)
+        assert (linked.locked, linked.prunable) == ("because reasons", "gone")
+
+    def test_bare_lock_is_an_empty_reason_not_an_absent_lock(self) -> None:
+        data = MAIN_ONLY + "worktree /dev/worktrees/api/x\0HEAD def456\0locked\0\0"
+        assert gitutil.parse_worktree_porcelain(data)[1].locked == ""
+
+    def test_lock_reason_may_span_lines(self) -> None:
+        data = MAIN_ONLY + "worktree /dev/worktrees/api/x\0HEAD d\0locked one\ntwo\0\0"
+        assert gitutil.parse_worktree_porcelain(data)[1].locked == "one\ntwo"
+
+
+def _record(path: Path, **flags: str | None) -> gitutil.Worktree:
+    return gitutil.Worktree(path=path, head="abc", branch="x", is_main=False, **flags)
+
+
+class TestIsStale:
+    """One stat on the admin link; no git involved."""
+
+    def linked(self, tmp_path: Path) -> Path:
+        path = tmp_path / "x"
+        path.mkdir()
+        (path / ".git").write_text("gitdir: elsewhere\n")
+        return path
+
+    def test_healthy(self, tmp_path: Path) -> None:
+        assert not gitutil.is_stale(_record(self.linked(tmp_path)))
+
+    def test_directory_gone(self, tmp_path: Path) -> None:
+        assert gitutil.is_stale(_record(tmp_path / "x"))
+
+    def test_git_file_removed_directory_kept(self, tmp_path: Path) -> None:
+        path = self.linked(tmp_path)
+        (path / ".git").unlink()
+        assert gitutil.is_stale(_record(path))
+
+    def test_locked_and_gone_is_stale_though_git_does_not_say_prunable(
+        self, tmp_path: Path
+    ) -> None:
+        assert gitutil.is_stale(_record(tmp_path / "x", locked="usb"))
+
+    def test_locked_and_healthy_is_not_stale(self, tmp_path: Path) -> None:
+        assert not gitutil.is_stale(_record(self.linked(tmp_path), locked=""))
+
+    def test_gits_own_flag_is_enough(self, tmp_path: Path) -> None:
+        # whatever the reason says: only its presence counts
+        assert gitutil.is_stale(_record(self.linked(tmp_path), prunable=""))
+
+    def test_main_is_never_stale(self, tmp_path: Path) -> None:
+        main = gitutil.Worktree(path=tmp_path / "bare.git", head="", branch=None, is_main=True)
+        assert not gitutil.is_stale(main)
+
     def test_empty(self) -> None:
         assert gitutil.parse_worktree_porcelain("") == []
 
@@ -155,6 +209,36 @@ class TestMutations:
             gitutil.worktree_remove(repo.path, target)
         gitutil.worktree_remove(repo.path, target, force=True)
         assert not target.exists()
+
+    def test_lock_unlock_prune(self, repo: Repo, tmp_path: Path) -> None:
+        import shutil
+
+        kept, gone = tmp_path / "wt" / "kept", tmp_path / "wt" / "gone"
+        gitutil.worktree_add(repo.path, kept, "kept")
+        gitutil.worktree_add(repo.path, gone, "gone")
+
+        def flags() -> dict[str, tuple[str | None, bool]]:
+            return {
+                w.name: (w.locked, w.prunable is not None)
+                for w in gitutil.list_worktrees(repo.path)
+                if not w.is_main
+            }
+
+        gitutil.worktree_lock(repo.path, kept, "on a\nusb drive")
+        assert flags()["kept"] == ("on a\nusb drive", False)
+        with pytest.raises(GitError):
+            gitutil.worktree_lock(repo.path, kept)
+        gitutil.worktree_unlock(repo.path, kept)
+        gitutil.worktree_lock(repo.path, kept)
+        assert flags()["kept"] == ("", False)
+        gitutil.worktree_unlock(repo.path, kept)
+        with pytest.raises(GitError):
+            gitutil.worktree_unlock(repo.path, kept)
+
+        shutil.rmtree(gone)
+        assert flags() == {"kept": (None, False), "gone": (None, True)}
+        gitutil.worktree_prune(repo.path)
+        assert flags() == {"kept": (None, False)}
 
     def test_checkout(self, repo: Repo) -> None:
         repo.add_branch("other")
