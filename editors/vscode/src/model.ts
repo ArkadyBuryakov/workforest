@@ -40,6 +40,7 @@ export class ForestModel implements vscode.Disposable {
   private queued = false;
   private debounce: NodeJS.Timeout | undefined;
   private lastConfigWarning = '';
+  private lastGood = new Map<string, Forest>(); // workspace folder fsPath → its last good listing
 
   constructor(
     private readonly cli: Cli,
@@ -145,6 +146,11 @@ export class ForestModel implements vscode.Disposable {
         locations.set(folder.uri.fsPath, located);
       }
     }
+    for (const known of [...this.lastGood.keys()]) {
+      if (!folders.some((folder) => folder.uri.fsPath === known)) {
+        this.lastGood.delete(known);
+      }
+    }
     this.forests = [...byMain.values()];
     this.scripts = scripts;
     this.folderLocations = locations;
@@ -192,7 +198,13 @@ export class ForestModel implements vscode.Disposable {
   private async forestOf(cwd: string): Promise<Forest | undefined> {
     const result = await this.cli.run(['list', '--json'], cwd);
     if (result.code === 0) {
-      return parseForest(result.stdout);
+      const forest = parseForest(result.stdout);
+      this.lastGood.set(cwd, forest);
+      return forest;
+    }
+    if (isNotARepo(result.stderr)) {
+      this.lastGood.delete(cwd);
+      return undefined;
     }
     if (result.code === EXIT_CONFIG) {
       const message = failureMessage(result.stderr, 'configuration error');
@@ -200,16 +212,20 @@ export class ForestModel implements vscode.Disposable {
         this.lastConfigWarning = message;
         void vscode.window.showWarningMessage(`Workforest: ${message}`);
       }
-    } else if (!isNotARepo(result.stderr)) {
+    } else {
       this.log.appendLine(`list --json failed in ${cwd} (exit ${result.code})`);
     }
-    return undefined;
+    // A listing that failed says nothing about the forest: keep showing the
+    // last one that worked rather than an empty tree, which would hide the
+    // very row that needs attention.
+    return this.lastGood.get(cwd);
   }
 
   /**
    * Watch each main checkout's worktree bookkeeping: `.git/worktrees/NAME`
    * appears and disappears with the worktree, its HEAD moves with the
-   * branch; `.git/HEAD` moves with `wf checkout`. Index rewrites in there
+   * branch, its `locked` file comes and goes with `wf lock`/`wf unlock`;
+   * `.git/HEAD` moves with `wf checkout`. Index rewrites in there
    * (every `git status`) are ignored, or our own refresh would loop.
    * The project configuration files feed the Scripts view, and
    * `.git/workforest/running/` the running badges.
@@ -227,7 +243,7 @@ export class ForestModel implements vscode.Disposable {
       );
       const relevant = (uri: vscode.Uri): boolean => {
         const parts = path.relative(bookkeeping, uri.fsPath).split(path.sep);
-        return parts.length === 1 || (parts.length === 2 && parts[1] === 'HEAD');
+        return parts.length === 1 || (parts.length === 2 && (parts[1] === 'HEAD' || parts[1] === 'locked'));
       };
       const onEvent = (uri: vscode.Uri): void => {
         if (relevant(uri)) {
