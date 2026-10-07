@@ -14,6 +14,9 @@ _GREEN = "\033[0;32m"
 _YELLOW = "\033[0;33m"
 _RESET = "\033[0m"
 
+_warned: set[str] = set()  # what warn_once has said in this process
+_quiet = False  # see quiet()
+
 
 def colors_enabled() -> bool:
     """The NO_COLOR / CLICOLOR_FORCE / isatty policy for everything we
@@ -41,7 +44,25 @@ def success(text: str) -> None:
 
 
 def warn(text: str) -> None:
-    _emit(text, _YELLOW)
+    if not _quiet:
+        _emit(text, _YELLOW)
+
+
+def warn_once(text: str) -> None:
+    """warn(), unless this process has said exactly this already — for
+    what is noticed on every pass over the same input (some commands load
+    the configuration more than once)."""
+    if text not in _warned:
+        _warned.add(text)
+        warn(text)
+
+
+def quiet() -> None:
+    """Drop every warning from here on. For `--complete`: its stderr lands
+    in the middle of the line the user is typing, and a warning is no
+    reason to offer no candidates."""
+    global _quiet
+    _quiet = True
 
 
 def error(text: str) -> None:

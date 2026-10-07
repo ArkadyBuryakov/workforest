@@ -33,10 +33,80 @@ class TestBasics:
         assert result.out == ""
 
     def test_config_error_is_exit_4(self, run_cli: Run, repo: Repo) -> None:
-        repo.write_project_config("bogus_key: 1\n")
+        repo.write_project_config("opener: 1\n")
         result = run_cli("list", cwd=repo.path)
         assert result.code == 4
-        assert "unknown key" in result.err
+        assert "Error: " in result.err
+        assert "'opener' must be a string" in result.err
+
+
+class TestUnknownConfigKeys:
+    """An unknown key warns on stderr and the command carries on; stdout —
+    the cd protocol and the machine output the editors parse — stays as it
+    is without the key."""
+
+    CONFIG = "bogus_key: 1\nscripts:\n  test: {command: 'true', colour: red}\nmake:\n  nope: true\n"
+
+    def test_warns_and_succeeds(self, run_cli: Run, repo: Repo) -> None:
+        path = repo.write_project_config("bogus_key: 1\n")
+        result = run_cli("list", cwd=repo.path)
+        assert result.code == 0
+        assert result.out == ""
+        assert result.err.splitlines()[0] == (
+            f"{path}: unknown key 'bogus_key', ignored (known keys: make, opener, openers, "
+            "scripts, setup_scripts, stop_timeout, symlinks, worktrees_dir, wrappers)"
+        )
+        assert "Error" not in result.err
+
+    def test_list_json_stays_clean(self, run_cli: Run, repo: Repo) -> None:
+        import json
+
+        repo.write_project_config("scripts:\n  test: 'true'\n")
+        clean = run_cli("list", "--json", cwd=repo.path)
+        assert clean.err == ""
+        repo.write_project_config(self.CONFIG)
+        result = run_cli("list", "--json", cwd=repo.path)
+        assert result.code == 0
+        assert json.loads(result.out) == json.loads(clean.out)
+        assert result.err.count("unknown key") == 3
+
+    def test_config_json_stays_clean(self, run_cli: Run, repo: Repo) -> None:
+        import json
+
+        repo.write_project_config(self.CONFIG)
+        result = run_cli("config", "--json", cwd=repo.path)
+        assert result.code == 0
+        config = json.loads(result.out)["config"]
+        assert "bogus_key" not in config
+        assert config["scripts"] == {"test": "true"}
+        assert "nope" not in config["make"]
+        assert result.err.count("unknown key") == 3
+
+    def test_cd_protocol_stays_clean(self, run_cli: Run, repo: Repo) -> None:
+        repo.write_project_config(self.CONFIG)
+        result = run_cli("create", "feat", cwd=repo.path)
+        assert result.code == 0
+        assert len(result.out.splitlines()) == 1
+        assert result.out.startswith(f"{cli.SHELL_DIRECTIVE_PREFIX}cd ")
+        assert "unknown key" not in result.out
+
+    def test_completion_says_nothing(self, run_cli: Run, repo: Repo) -> None:
+        repo.write_project_config(self.CONFIG)
+        result = run_cli("--complete", "scripts", cwd=repo.path)
+        assert result.code == 0
+        assert result.out.splitlines() == ["test"]
+        assert result.err == ""
+
+    def test_an_error_stays_the_last_line(self, run_cli: Run, repo: Repo) -> None:
+        """The editors show the last stderr line of a failed run."""
+        repo.write_project_config("bogus_key: 1\nopener: 1\n")
+        result = run_cli("list", "--json", cwd=repo.path)
+        assert result.code == 4
+        assert result.out == ""
+        lines = result.err.splitlines()
+        assert "unknown key 'bogus_key'" in lines[0]
+        assert lines[-1].startswith("Error: ")
+        assert "'opener' must be a string" in lines[-1]
 
 
 class TestStdoutContract:

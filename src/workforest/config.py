@@ -15,6 +15,7 @@ from typing import Any
 
 import yaml
 
+from workforest import output
 from workforest.errors import ConfigError
 
 SYSTEM_CONFIG_DIR = Path("/etc/workforest")
@@ -219,11 +220,23 @@ def _parse_file(path: Path) -> dict[str, Any]:
     return data
 
 
-def _validate(data: dict[str, Any], path: Path) -> None:
+def _warn_unknown_key(where: str, key: object, known: list[str]) -> None:
+    """An unknown key is a warning, never an error: a file written for a
+    newer workforest — or one with a typo in it — must not take every
+    command down with it. The key is dropped and the rest loads; `where` is
+    the file, plus the entry (`make`, `openers.NAME`) below the top level."""
+    output.warn_once(f"{where}: unknown key {key!r}, ignored (known keys: {', '.join(known)})")
+
+
+def _validate(data: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Check one file's keys and values; returns it without the unknown
+    keys, which are warned about and ignored at every level."""
+    checked: dict[str, Any] = {}
     for key, value in data.items():
         if key not in _SCHEMA:
-            known = ", ".join(sorted(_SCHEMA))
-            raise ConfigError(f"{path}: unknown key {key!r} (known keys: {known})")
+            _warn_unknown_key(str(path), key, sorted(_SCHEMA))
+            continue
+        checked[key] = value
         match _SCHEMA[key].kind:
             case "str":
                 if not isinstance(value, str):
@@ -239,22 +252,29 @@ def _validate(data: dict[str, Any], path: Path) -> None:
             case "map":
                 if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
                     raise ConfigError(f"{path}: {key!r} must be a mapping")
-                for name, entry in value.items():
-                    _validate_entry(entry, key=key, name=name, spec=_SCHEMA[key], path=path)
+                checked[key] = {
+                    name: _validate_entry(entry, key=key, name=name, spec=_SCHEMA[key], path=path)
+                    for name, entry in value.items()
+                }
             case "section":
-                _validate_section(value, key=key, path=path)
+                checked[key] = _validate_section(value, key=key, path=path)
+    return checked
 
 
-def _validate_section(value: Any, *, key: str, path: Path) -> None:
+def _validate_section(value: Any, *, key: str, path: Path) -> dict[str, Any]:
     """The `make` section — the only one: a fixed set of keys, each shaped
     like its MakeSpec default, a flag or a list of names; a null value
-    resets the key to that default during merge."""
+    resets the key to that default during merge. Returns the section
+    without its unknown keys."""
     if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
         raise ConfigError(f"{path}: {key!r} must be a mapping")
     known = {f.name: f.default for f in fields(MakeSpec)}
+    checked: dict[str, Any] = {}
     for name, entry in value.items():
         if name not in known:
-            raise ConfigError(f"{path}: {key}.{name}: unknown key (known keys: {', '.join(known)})")
+            _warn_unknown_key(f"{path}: {key}", name, list(known))
+            continue
+        checked[name] = entry
         if entry is None:
             continue
         if isinstance(known[name], bool):
@@ -262,6 +282,7 @@ def _validate_section(value: Any, *, key: str, path: Path) -> None:
                 raise ConfigError(f"{path}: {key}.{name} must be true or false")
         elif not isinstance(entry, list) or not all(isinstance(item, str) for item in entry):
             raise ConfigError(f"{path}: {key}.{name} must be a list of strings")
+    return checked
 
 
 def _is_positive_number(value: Any) -> bool:
@@ -276,23 +297,23 @@ def _is_name_list(value: Any) -> bool:
     )
 
 
-def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: Path) -> None:
+def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: Path) -> Any:
+    """Check one `map` entry; returns it without its unknown keys."""
     if entry is None:
-        return
+        return None
     where = f"{path}: {key}.{name}"
     if isinstance(entry, str):
         if not entry.strip():
             raise ConfigError(f"{where}: must not be empty")
-        return
+        return entry
     assert spec.entry is not None  # every "map" field names its entry type
     known = [_key_name(f.name) for f in fields(spec.entry)]
     if not isinstance(entry, dict):
         raise ConfigError(f"{where}: must be a shell command or a mapping ({', '.join(known)})")
     for field_name in entry:
         if field_name not in known:
-            raise ConfigError(
-                f"{where}: unknown key {field_name!r} (known keys: {', '.join(known)})"
-            )
+            _warn_unknown_key(where, field_name, known)
+    entry = {field_name: item for field_name, item in entry.items() if field_name in known}
     for field_name in ("command", "from"):
         if field_name in entry and not isinstance(entry[field_name], str):
             raise ConfigError(f"{where}: {field_name!r} must be a string")
@@ -327,6 +348,7 @@ def _validate_entry(entry: Any, *, key: str, name: str, spec: _FieldSpec, path: 
             f"{where}: 'background' and 'wrap' are mutually exclusive "
             "(the wrapper decides where the command runs)"
         )
+    return entry
 
 
 def _validate_references(
@@ -421,9 +443,7 @@ def load_config(main_worktree: Path | None = None) -> Config:
     merged = {key: spec.default for key, spec in _SCHEMA.items()}
     sources: list[ConfigSource] = []
     for source in _layer_files(main_worktree):
-        data = _parse_file(source.path)
-        _validate(data, source.path)
-        merged = _merge(merged, data)
+        merged = _merge(merged, _validate(_parse_file(source.path), source.path))
         sources.append(source)
 
     for key, spec in _SCHEMA.items():

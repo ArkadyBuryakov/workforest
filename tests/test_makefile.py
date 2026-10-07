@@ -235,7 +235,6 @@ class TestConfigSection:
         ("text", "message"),
         [
             ("make: []\n", "'make' must be a mapping"),
-            ("make:\n  nope: true\n", "make.nope: unknown key"),
             ("make:\n  hidden: yes please\n", "make.hidden must be true or false"),
             ("make:\n  hide_scripts: check\n", "make.hide_scripts must be a list of strings"),
             ("make:\n  show_scripts: [1]\n", "make.show_scripts must be a list of strings"),

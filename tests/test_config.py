@@ -9,6 +9,7 @@ from workforest import config as config_mod
 from workforest.config import (
     CommandSpec,
     Config,
+    MakeSpec,
     OpenerSpec,
     ScriptSpec,
     load_config,
@@ -311,9 +312,7 @@ class TestEntries:
                 "openers:\n  win: {command: x, from: y}\n",
                 "openers.win: exactly one of 'command' and 'from' is required",
             ),
-            ("openers:\n  win: {command: x, mode: y}\n", "openers.win: unknown key 'mode'"),
-            ("wrappers:\n  k: {command: x, wrap: y}\n", "wrappers.k: unknown key 'wrap'"),
-            ("wrappers:\n  k: {from: x}\n", "wrappers.k: unknown key 'from'"),
+            ("wrappers:\n  k: {from: x}\n", "wrappers.k: 'command' is required"),
             ("wrappers:\n  k: {background: true}\n", "wrappers.k: 'command' is required"),
             (
                 "openers:\n  code: {command: x, background: yes please}\n",
@@ -400,7 +399,6 @@ class TestEntries:
             ),
             ("stop_timeout: -1\n", "'stop_timeout' must be a number of seconds above 0"),
             ("stop_timeout: '30'\n", "'stop_timeout' must be a number of seconds above 0"),
-            ("scripts:\n  test: {command: x, wrap: y}\n", "scripts.test: unknown key 'wrap'"),
             ("scripts:\n  test: ''\n", "scripts.test: must not be empty"),
         ],
     )
@@ -457,10 +455,87 @@ class TestReferences:
 
 
 class TestValidation:
-    def test_unknown_key(self, tmp_path: Path) -> None:
+    def test_unknown_key_is_a_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         project = make_project(tmp_path)
-        (project / ".workforest.yaml").write_text("worktree_dir: typo\n")
-        with pytest.raises(ConfigError, match="unknown key 'worktree_dir'"):
+        path = project / ".workforest.yaml"
+        path.write_text("worktree_dir: typo\nopener: vim\n")
+        config = load_config(project)
+        assert config.opener == "vim"  # the rest of the file loads
+        assert config.worktrees_dir == Config().worktrees_dir
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == (
+            f"{path}: unknown key 'worktree_dir', ignored (known keys: make, opener, openers, "
+            "scripts, setup_scripts, stop_timeout, symlinks, worktrees_dir, wrappers)\n"
+        )
+
+    @pytest.mark.parametrize(
+        ("content", "warning"),
+        [
+            (
+                "openers:\n  win: {command: x, mode: y}\n",
+                "openers.win: unknown key 'mode', ignored "
+                "(known keys: command, from, wrap, background)",
+            ),
+            (
+                "wrappers:\n  k: {command: x, wrap: y}\n",
+                "wrappers.k: unknown key 'wrap', ignored (known keys: command, background)",
+            ),
+            (
+                "scripts:\n  test: {command: x, wrap: y}\n",
+                "scripts.test: unknown key 'wrap', ignored (known keys: command, bulk, "
+                "pipeline, background, exclusive, hidden, cleanup, stop_timeout)",
+            ),
+            (
+                "make:\n  nope: true\n",
+                "make: unknown key 'nope', ignored (known keys: hidden, hide_scripts, "
+                "show_scripts, exclusive_scripts)",
+            ),
+        ],
+    )
+    def test_unknown_nested_key_is_a_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], content: str, warning: str
+    ) -> None:
+        project = make_project(tmp_path)
+        path = project / ".workforest.yaml"
+        path.write_text(content)
+        load_config(project)
+        assert capsys.readouterr().err == f"{path}: {warning}\n"
+
+    def test_unknown_keys_are_dropped(self, tmp_path: Path) -> None:
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text(
+            "openers:\n  win: {command: x, mode: y}\n"
+            "wrappers:\n  k: {command: x, wrap: y}\n"
+            "scripts:\n  test: {command: x, wrap: y, exclusive: true}\n"
+            "make:\n  nope: true\n  hidden: true\n"
+        )
+        config = load_config(project)
+        assert config.openers == {"win": OpenerSpec(command="x")}
+        assert config.wrappers == {"k": CommandSpec(command="x")}
+        assert config.scripts == {"test": ScriptSpec(command="x", exclusive=True)}
+        assert config.make == MakeSpec(hidden=True)
+
+    def test_each_file_warns_for_itself(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        user = write_user_config("bogus: 1\n")
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text("bogus: 1\n")
+        load_config(project)
+        load_config(project)  # a second load in the same process repeats nothing
+        lines = capsys.readouterr().err.splitlines()
+        assert [line.split(": ")[0] for line in lines] == [
+            str(user),
+            str(project / ".workforest.yaml"),
+        ]
+
+    def test_an_unknown_key_does_not_excuse_an_invalid_one(self, tmp_path: Path) -> None:
+        project = make_project(tmp_path)
+        (project / ".workforest.yaml").write_text("bogus: 1\nopener: [not, a, string]\n")
+        with pytest.raises(ConfigError, match="'opener' must be a string"):
             load_config(project)
 
     def test_wrong_scalar_type(self, tmp_path: Path) -> None:
@@ -512,7 +587,7 @@ class TestValidation:
     def test_error_names_the_file(self, tmp_path: Path) -> None:
         project = make_project(tmp_path)
         bad = project / ".workforest.yaml"
-        bad.write_text("nonsense_key: 1\n")
+        bad.write_text("opener: 1\n")
         with pytest.raises(ConfigError, match=str(bad)):
             load_config(project)
 

@@ -108,6 +108,14 @@ short, fully commented starter (`--local` for a personal one) — inert until
 you uncomment something. Nothing in the environment
 changes the result — files and flags only.
 
+An unknown key — at the top level, in the `make` section, or in an
+`openers`/`wrappers`/`scripts` entry — is not an error: it is ignored with
+a warning on stderr that names the file, the key and the keys known there,
+and the rest of the file applies, so a file written for a newer
+`workforest` still loads. Completion prints no warnings. A known key with
+a value of the wrong type or shape, and `from`/`wrap` names that do not
+resolve, are config errors (exit code `4`).
+
 All keys, with defaults:
 
 ```yaml

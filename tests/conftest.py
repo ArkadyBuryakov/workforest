@@ -42,6 +42,12 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
 
+    # Per-process warning state: every test is a process of its own.
+    from workforest import output
+
+    monkeypatch.setattr(output, "_warned", set())
+    monkeypatch.setattr(output, "_quiet", False)
+
     # System config dir is /etc/workforest in production; tests get their own.
     from workforest import config as config_mod
 
