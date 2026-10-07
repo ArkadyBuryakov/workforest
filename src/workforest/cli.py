@@ -288,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "--complete":
         from workforest import completions
 
+        output.quiet()  # candidates only: a config warning waits for a real command
         topic = args[1] if len(args) > 1 else ""
         for line in completions.complete(topic):
             print(line)

@@ -66,9 +66,22 @@ prints the merged result and where each layer came from;
 scaffolds a commented project file
 .RB ( \-\-local
 for a personal one).
-Unknown keys, and
+.PP
+An unknown key \(em at the top level, in the
+.B make
+section, or in an
+.BR openers ", " wrappers ", or " scripts
+entry \(em is not an error: it is ignored with a warning on standard error
+that names the file, the key, and the keys known there, and the rest of
+the file applies.
+So a file written for a newer
+.B workforest
+still loads.
+Completion prints no warnings.
+A known key with a value of the wrong type or shape, and
 .BR from " or " wrap
-names that do not resolve, are reported when the configuration loads.
+names that do not resolve, are configuration errors (exit status 4),
+reported when the configuration loads.
 .SH KEYS
 All keys with their built-in defaults:
 .PP
