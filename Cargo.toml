@@ -9,6 +9,19 @@ repository = "https://github.com/ArkadyBuryakov/workforest"
 homepage = "https://github.com/ArkadyBuryakov/workforest"
 keywords = ["git", "worktree", "cli", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
+publish = false
+# What a source distribution carries: the crate, what it embeds, and what
+# its tests read. The editor clients and the release tooling stay out.
+include = [
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/completions/**",
+    "/packaging/pypi/**",
+    "/resources/**",
+    "/src/**",
+    "/tests/**",
+]
 
 [dependencies]
 clap = { version = "4.5", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions"] }
@@ -18,7 +31,7 @@ nucleo-matcher = "0.3"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 saphyr-parser = "0.1"
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 yaml-edit = "0.3"
 
 [lints.rust]

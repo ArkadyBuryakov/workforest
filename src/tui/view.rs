@@ -142,7 +142,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(Span::styled(help, dim()))), help_area);
 
     let typed = (prompt.chars().count() + app.query().chars().count()) as u16;
-    let cursor = Rect { x: prompt_area.x + typed.min(prompt_area.width.saturating_sub(1)), ..prompt_area };
+    let cursor =
+        Rect { x: prompt_area.x + typed.min(prompt_area.width.saturating_sub(1)), ..prompt_area };
     frame.set_cursor_position((cursor.x, cursor.y));
 }
 
@@ -161,7 +162,8 @@ mod tests {
         let buffer = terminal.backend().buffer().clone();
         (0..height)
             .map(|y| {
-                let line: String = (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect();
+                let line: String =
+                    (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect();
                 line.trim_end().to_string()
             })
             .collect()
@@ -237,7 +239,10 @@ mod tests {
             screen(&app, 70, 8)[3].clone()
         };
         let one = || vec![Row::new("feat", "local", "")];
-        assert_eq!(message(Mode::Create, vec![], ""), "  no branches to offer — type a name to create one");
+        assert_eq!(
+            message(Mode::Create, vec![], ""),
+            "  no branches to offer — type a name to create one"
+        );
         assert_eq!(message(Mode::Create, one(), "zzz"), "  no match — enter creates this branch");
         assert_eq!(message(Mode::Open, vec![], ""), "  nothing here");
         assert_eq!(message(Mode::Open, one(), "zzz"), "  no match");
@@ -246,7 +251,9 @@ mod tests {
     #[test]
     fn a_long_list_scrolls_to_keep_the_selection_on_screen() {
         let mut app = App::new(Mode::BASE.to_vec(), Mode::Delete, openers());
-        app.set_rows((0..30).map(|index| Row::new(&format!("wt{index:02}"), "", "clean")).collect());
+        app.set_rows(
+            (0..30).map(|index| Row::new(&format!("wt{index:02}"), "", "clean")).collect(),
+        );
         for _ in 0..12 {
             app.handle_key(key(KeyCode::Down));
         }
@@ -257,8 +264,13 @@ mod tests {
 
     #[test]
     fn every_state_has_a_color() {
-        let colors: Vec<Option<Color>> =
-            ["clean", "dirty", "stale locked", "clean locked"].iter().map(|state| state_style(state).fg).collect();
-        assert_eq!(colors, [Some(Color::Green), Some(Color::Yellow), Some(Color::Red), Some(Color::Magenta)]);
+        let colors: Vec<Option<Color>> = ["clean", "dirty", "stale locked", "clean locked"]
+            .iter()
+            .map(|state| state_style(state).fg)
+            .collect();
+        assert_eq!(
+            colors,
+            [Some(Color::Green), Some(Color::Yellow), Some(Color::Red), Some(Color::Magenta)]
+        );
     }
 }

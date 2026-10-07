@@ -899,8 +899,8 @@ fn undefined_variables_and_bad_placeholders_are_config_errors() {
 fn reference_examples_validate() {
     // The shipped example configs must always pass our own validation.
     let layers = Layers::new();
-    layers.project(include_str!("../workforest/examples/.workforest.yaml"));
-    layers.user(include_str!("../workforest/examples/config.yaml"));
+    layers.project(include_str!("../../resources/examples/.workforest.yaml"));
+    layers.user(include_str!("../../resources/examples/config.yaml"));
     let (config, warnings) = capture(|| layers.load());
     assert_eq!(warnings, "");
     assert!(!config.symlinks.is_empty()); // the project example sets them
@@ -912,7 +912,7 @@ fn reference_examples_validate() {
 #[test]
 fn the_init_template_sets_nothing() {
     let layers = Layers::new();
-    layers.project(include_str!("../workforest/templates/project.yaml"));
+    layers.project(include_str!("../../resources/templates/project.yaml"));
     let config = layers.load();
     assert_eq!(Config { sources: vec![], ..config }, Config::default());
 }

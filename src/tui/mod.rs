@@ -98,11 +98,10 @@ pub fn execute(
 /// The mode to start in: the one asked for when there is such a mode,
 /// else OPEN when there is something to open, else CREATE.
 fn initial_mode(asked: Option<&str>, modes: &[Mode], has_worktrees: bool) -> Mode {
-    asked.and_then(Mode::from_name).filter(|mode| modes.contains(mode)).unwrap_or(if has_worktrees {
-        Mode::Open
-    } else {
-        Mode::Create
-    })
+    asked
+        .and_then(Mode::from_name)
+        .filter(|mode| modes.contains(mode))
+        .unwrap_or(if has_worktrees { Mode::Open } else { Mode::Create })
 }
 
 /// The interactive loop.
@@ -157,7 +156,9 @@ mod tests {
     }
 
     fn create(ctx: &Context, branch: &str) {
-        capture(|| commands::cmd_create(ctx, Some(branch), OpenWith::default(), false, true)).0.unwrap();
+        capture(|| commands::cmd_create(ctx, Some(branch), OpenWith::default(), false, true))
+            .0
+            .unwrap();
     }
 
     fn names(rows: &[Row]) -> Vec<&str> {
@@ -225,7 +226,7 @@ mod tests {
         let feat = Row::new("feat", "feature/feat", "dirty locked");
         // a stale worktree is only offered for delete
         for mode in [Mode::Open, Mode::Checkout] {
-            assert_eq!(rows(&ctx, mode, &no_claude()).unwrap(), [feat.clone()]);
+            assert_eq!(rows(&ctx, mode, &no_claude()).unwrap(), std::slice::from_ref(&feat));
         }
         let mut deletable = rows(&ctx, Mode::Delete, &no_claude()).unwrap();
         deletable.sort_by(|a, b| a.name.cmp(&b.name));
@@ -241,7 +242,10 @@ mod tests {
         let project = claude.project_dir(&repo.path);
         fs::create_dir_all(&project).unwrap();
         fs::write(project.join("abc.jsonl"), "{}\n").unwrap();
-        assert_eq!(rows(&ctx, Mode::Claude, &claude).unwrap(), [Row::new("abc", "(no description)", "")]);
+        assert_eq!(
+            rows(&ctx, Mode::Claude, &claude).unwrap(),
+            [Row::new("abc", "(no description)", "")]
+        );
         let (outcome, shown) = capture(|| execute(&ctx, Mode::Claude, "abc", None, &claude));
         assert_eq!(outcome, Ok(Outcome::Nothing));
         assert!(shown.starts_with("copied session 'abc' to "), "{shown}");

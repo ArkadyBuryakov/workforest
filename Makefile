@@ -1,7 +1,11 @@
-# Dev targets wrap `uv run`; `uv sync` is the only setup step.
-# Machine-specific overrides (IDEA_JAVA_HOME, IDEA_PLUGINS) go in an
-# untracked Makefile.local.
+# Dev targets wrap cargo; a Rust toolchain (and cargo-llvm-cov, for the
+# coverage gate) is the only setup.
+# Machine-specific overrides (PREFIX, IDEA_JAVA_HOME, IDEA_PLUGINS) go in
+# an untracked Makefile.local.
 -include Makefile.local
+
+# Where `make install` puts this checkout: bin/ and share/man/ under it.
+PREFIX ?= $(HOME)/.local
 
 # JetBrains plugin (editors/idea). Gradle runs on any JDK 17+ — an IDE's
 # bundled JBR does — and fetches the JDK 21 it compiles with itself; empty
@@ -11,7 +15,7 @@
 IDEA_JAVA_HOME ?= $(JAVA_HOME)
 IDEA_PLUGINS ?= $(HOME)/.local/share/JetBrains/IdeaIC2025.2
 
-.PHONY: check test lint type cov sync install uninstall logo binary \
+.PHONY: check test lint cov cov-html install uninstall logo binary \
 	vscode vscode-build vscode-install vscode-uninstall \
 	idea idea-build idea-build-full idea-install idea-uninstall plugins
 
@@ -19,12 +23,17 @@ IDEA_PLUGINS ?= $(HOME)/.local/share/JetBrains/IdeaIC2025.2
 # the name CI gives the matching binary artifact.
 PLATFORM := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')
 
-# The one version in the repository. The editor clients have none of their
-# own: they carry a placeholder and are stamped with this at package time,
-# so a client is always the release of the CLI frozen inside it. Release
-# workflows read __version__ the same way.
-VERSION := $(shell sed -n 's/^__version__ = "\(.*\)"$$/\1/p' src/workforest/__init__.py)
+# The one version in the repository: Cargo.toml's. The editor clients have
+# none of their own: they carry a placeholder and are stamped with this at
+# package time, so a client is always the release of the CLI built into it.
+# Release workflows ask packaging/version the same way.
+VERSION := $(shell packaging/version)
 PLACEHOLDER_VERSION := 0.0.0
+
+# Lines the test suite must reach. Forked supervisors and the terminal
+# loop are counted too: the integration tests run the built binary.
+COVERAGE_FLOOR := 90
+MAN := packaging/pypi/data/share/man
 
 # The changelog the clients publish is a placeholder in the repository too:
 # a release is one commit to CHANGELOG.md. Stamp it in for the build and put
@@ -32,43 +41,49 @@ PLACEHOLDER_VERSION := 0.0.0
 STAMP := packaging/changelog/generate > /dev/null
 UNSTAMP := packaging/changelog/generate --placeholder > /dev/null
 
-sync:
-	uv sync
-
 test:
-	uv run pytest
+	cargo test --locked
 
 lint:
-	uv run ruff check .
-	uv run ruff format --check .
+	cargo fmt --check
+	cargo clippy --locked --all-targets -- -D warnings
 
-type:
-	uv run mypy
-
-check: lint type test
-
+# The tests, with the coverage gate.
 cov:
-	uv run pytest --cov-report=html
-	@echo "open htmlcov/index.html"
+	cargo llvm-cov --locked --fail-under-lines $(COVERAGE_FLOOR)
+
+check: lint cov
+
+cov-html:
+	cargo llvm-cov --locked --html
+	@echo "open target/llvm-cov/html/index.html"
 
 logo:
-	uv run ./assets/generate
+	./assets/generate
 
-# Install the current checkout as a uv tool (~/.local/bin/workforest).
-# --reinstall so re-running picks up changes even without a version bump.
+# Install the current checkout under PREFIX (~/.local by default): the
+# binary, `wf` as a link to it, and the man pages beside them, where man(1)
+# finds them through $PATH.
 install:
-	uv tool install --reinstall .
+	cargo build --locked --release --bin workforest
+	mkdir -p $(PREFIX)/bin $(PREFIX)/share/man/man1 $(PREFIX)/share/man/man5
+	install -m755 target/release/workforest $(PREFIX)/bin/workforest
+	ln -sf workforest $(PREFIX)/bin/wf
+	install -m644 $(MAN)/man1/workforest.1 $(MAN)/man1/wf.1 $(PREFIX)/share/man/man1/
+	install -m644 $(MAN)/man5/workforest.5 $(MAN)/man5/wf.5 $(PREFIX)/share/man/man5/
 	@echo
 	@echo 'workforest installed. Make sure your shell rc has:'
 	@echo '  eval "$$(workforest shell-init)"'
 
 uninstall:
-	uv tool uninstall workforest
+	rm -f $(PREFIX)/bin/workforest $(PREFIX)/bin/wf
+	rm -f $(PREFIX)/share/man/man1/workforest.1 $(PREFIX)/share/man/man1/wf.1
+	rm -f $(PREFIX)/share/man/man5/workforest.5 $(PREFIX)/share/man/man5/wf.5
 
 # --- The CLI the editor packages ship (packaging/binary) ----------------
 
-# One self-contained executable in dist/binary/, for this machine only: CI
-# builds all four platforms and packages one .vsix per platform. Both
+# One release build in dist/binary/, for this machine only: CI builds all
+# four platforms and packages one .vsix per platform. Both
 # editor builds copy it in, so a locally installed plugin always drives the
 # CLI it was built with instead of whatever is on the IDE's PATH.
 binary:
@@ -109,8 +124,8 @@ idea-build:
 	status=$$?; $(UNSTAMP); exit $$status
 
 # All four platforms in one zip: what CI publishes, and what the manual
-# first upload to the JetBrains Marketplace needs. PyInstaller only builds
-# for the machine it runs on, so the executables come from the Binaries
+# first upload to the JetBrains Marketplace needs. A local build is for the
+# machine it runs on, so the other executables come from the Binaries
 # workflow — pushing a branch that touches the CLI runs it, so usually the
 # artifacts are already there; otherwise `gh workflow run binaries.yml
 # --ref <branch>`. The newest successful run of the current branch wins,
@@ -125,7 +140,7 @@ idea-build-full:
 	sha=$$(gh run view "$$run" --json headSha --jq .headSha); \
 	echo "binaries from run $$run ($$sha)"; \
 	if git cat-file -e "$$sha^{commit}" 2> /dev/null; then \
-		git diff --quiet "$$sha" HEAD -- src pyproject.toml uv.lock packaging/binary || \
+		git diff --quiet "$$sha" HEAD -- src resources Cargo.toml Cargo.lock packaging/binary || \
 			echo "warning: the CLI changed since that run — these executables are not this checkout's" >&2; \
 	else \
 		echo "warning: $$sha is not in this checkout; cannot tell whether the CLI changed since" >&2; \

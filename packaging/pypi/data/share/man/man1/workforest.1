@@ -83,12 +83,6 @@ workforest, wf \- git worktree forest management
 .SY "workforest claude copy-session"
 .I SESSION_ID
 .YS
-.SY workforest
-.I OPENER
-.RI [ NAME ]
-.RB [ \-p
-.IR PATH ]
-.YS
 .SH DESCRIPTION
 .B workforest
 manages a
@@ -478,8 +472,8 @@ is a makefile target: stop
 instead (see
 .BR make ).
 .SS tui [\fIMODE\fR]
-Interactive mode, driven by
-.BR fzf (1).
+Interactive mode: a full-screen list to pick from, drawn by workforest
+itself.
 Running
 .B workforest
 with no arguments at all is the same as
@@ -512,15 +506,35 @@ cycle the opener used by
 .B create
 and
 .BR open ;
+typing filters the list (fuzzy matching, on the name and what is shown
+beside it);
+.B Up
+/
+.B Down
+(or
+.BR Alt\-k " / " Alt\-j )
+move the selection;
 .B Enter
-accepts the selection (in
+accepts it (in
 .BR create ,
 a query that matches no branch names a new branch);
 .B Esc
 quits.
-The
+Worktrees are listed with their branch and their state \(em
+.BR clean ,
+.BR dirty ,
+.BR stale ,
+and
+.B locked
+\(em as in
+.BR list ;
+a stale one is offered only by the
 .B delete
-tab stays open after each deletion for bulk cleanup.
+tab, which stays open after each deletion for bulk cleanup.
+.PP
+The interface is drawn on the terminal's alternate screen, so what was
+on screen comes back when it closes; it needs a terminal on stdin and
+stderr.
 .SS init
 Write a short, fully commented
 .B .workforest.yaml
@@ -578,12 +592,13 @@ directive it prints (a
 into the worktree, followed by the opener command), so either spelling
 \(em or an alias of either \(em behaves the same; registers tab
 completion for both;
-and, when workforest was installed into a Python environment whose
-manual pages are not on the default search path (a
+and, when workforest was installed where its manual pages are not on
+the default search path (a
 .B uv tool
 or
 .B pipx
-install), prepends that location to
+install, which keeps them in the tool's own environment), prepends that
+location to
 .BR $MANPATH .
 .PP
 Without the integration everything still works, but an opener that runs
@@ -616,7 +631,7 @@ Base of the user configuration directory (default
 Disable or force colored messages on stderr.
 .TP
 .B WORKFOREST_DEBUG
-When set, errors re-raise with a Python traceback instead of a message.
+When set, the kind of an error is printed before its message.
 .PP
 Openers, wrappers, setup scripts, and named scripts run with the
 .B WF_*
@@ -737,8 +752,7 @@ Remove a worktree and its branch.
 Start the interactive TUI.
 .SH SEE ALSO
 .BR workforest (5),
-.BR git-worktree (1),
-.BR fzf (1)
+.BR git-worktree (1)
 .PP
 .UR https://github.com/ArkadyBuryakov/workforest
 .UE

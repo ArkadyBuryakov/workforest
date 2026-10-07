@@ -2,20 +2,10 @@
 .vscode
 .idea
 
-# Python
-__pycache__/
-*.pyc
-.venv/
+
+# Built packages
 dist/
 build/
-*.egg-info/
-
-# Tooling caches
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
 
 # Packaging artifacts (rendered from *.template at release time)
 *.pkg.tar.zst

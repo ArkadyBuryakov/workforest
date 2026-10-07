@@ -381,7 +381,6 @@ mod tests {
     use crate::testing::{Recorder, Sandbox};
     use indexmap::IndexMap;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     const EDIT: &str = "$EDITOR \"$WF_TARGET\"";
 
@@ -965,8 +964,7 @@ mod tests {
     fn run_background(body: &str) -> (Result<Option<ShellAction>>, String) {
         let launch = Launch::new();
         let program = launch.sandbox.path().join("stub-term");
-        fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::testing::write_executable(&program, &format!("#!/bin/sh\n{body}\n"));
         let config = openers(&[("bg", background(program.to_str().unwrap()))]);
         let main = launch.sandbox.path().join("api");
         let target = Target {

@@ -81,6 +81,43 @@ fn init_bare(path: &Path) {
     assert!(status.success());
 }
 
+impl Sandbox {
+    /// Where this sandbox's system and user config layers would be.
+    pub fn roots(&self) -> crate::config::Roots {
+        crate::config::Roots {
+            system_dir: self.root.join("etc-workforest"),
+            user_dir: self.root.join("home").join(".config").join("workforest"),
+        }
+    }
+
+    /// The environment a command sees: SHELL and EDITOR pinned to stubs, a
+    /// home of its own, and nothing of the user's but PATH.
+    pub fn env(&self) -> crate::util::Env {
+        [
+            ("SHELL".into(), "/bin/sh".into()),
+            ("EDITOR".into(), "stub-editor".into()),
+            ("HOME".into(), self.root.join("home").into_os_string()),
+            ("PATH".into(), std::env::var_os("PATH").unwrap_or_default()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    /// What `build_context` gives a command started in `cwd` — from this
+    /// sandbox's config layers and environment, never the real ones.
+    pub fn context(&self, repo: &Repo, cwd: &Path) -> crate::commands::Context {
+        let config = crate::config::load_config_in(&self.roots(), Some(&repo.path)).unwrap();
+        let worktrees_dir = crate::config::resolve_worktrees_dir(&config, &repo.path).unwrap();
+        crate::commands::Context {
+            cwd_root: cwd.to_path_buf(),
+            main: repo.path.clone(),
+            config,
+            worktrees_dir,
+            env: self.env(),
+        }
+    }
+}
+
 /// Handle to a throwaway git repository.
 pub struct Repo {
     pub path: PathBuf,
@@ -134,9 +171,28 @@ impl Repo {
         self.git(&["remote", "add", name, &bare.to_string_lossy()]);
     }
 
+    pub fn write_project_config(&self, content: &str) {
+        fs::write(self.path.join(".workforest.yaml"), content).unwrap();
+    }
+
     pub fn make_dirty(&self, worktree: &Path) {
         fs::write(worktree.join("dirty.txt"), "uncommitted\n").unwrap();
     }
+}
+
+/// Write an executable file through a child process: a file this (many-
+/// threaded) test process had open for writing could still be held by
+/// another test's fork when it is first run — "text file busy".
+pub fn write_executable(path: &Path, content: &str) {
+    use std::io::Write;
+    let mut writer = Command::new("sh")
+        .args(["-c", "cat > \"$1\" && chmod +x \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    writer.stdin.take().unwrap().write_all(content.as_bytes()).unwrap();
+    assert!(writer.wait().unwrap().success());
 }
 
 /// Executable stub that logs each invocation instead of doing anything.
@@ -147,19 +203,16 @@ pub struct Recorder {
 
 impl Recorder {
     pub fn new(directory: &Path) -> Self {
-        use std::os::unix::fs::PermissionsExt;
         let log = directory.join("recorder.log");
         let path = directory.join("recorder");
-        fs::write(
+        write_executable(
             &path,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"argv=$* argc=$# cwd=$PWD wf_worktree=$WF_WORKTREE \
                  virtual_env=$VIRTUAL_ENV\" >> {}\n",
                 log.display()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         Self { path, log }
     }
 

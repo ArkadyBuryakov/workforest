@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use crate::errors::{Error, Result};
 use crate::util::{self, Env, shell_quote_path};
 
-const WRAPPER: &str = include_str!("workforest/shell/workforest.sh");
-const COMPLETION_BASH: &str = include_str!("workforest/shell/completion.bash");
-const COMPLETION_ZSH: &str = include_str!("workforest/shell/completion.zsh");
+const WRAPPER: &str = include_str!("../resources/shell/workforest.sh");
+const COMPLETION_BASH: &str = include_str!("../resources/shell/completion.bash");
+const COMPLETION_ZSH: &str = include_str!("../resources/shell/completion.zsh");
 
 /// Prefixes whose share/man is on every man(1) default search path already.
 const SYSTEM_PREFIXES: [&str; 2] = ["/usr", "/usr/local"];

@@ -288,9 +288,9 @@ mod tests {
     }
 
     const SHIPPED: [&str; 3] = [
-        include_str!("../workforest/examples/.workforest.yaml"),
-        include_str!("../workforest/examples/config.yaml"),
-        include_str!("../workforest/templates/project.yaml"),
+        include_str!("../../resources/examples/.workforest.yaml"),
+        include_str!("../../resources/examples/config.yaml"),
+        include_str!("../../resources/templates/project.yaml"),
     ];
 
     #[test]

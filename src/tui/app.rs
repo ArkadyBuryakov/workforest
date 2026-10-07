@@ -184,7 +184,8 @@ impl App {
             .enumerate()
             .filter_map(|(index, row)| {
                 let haystack = format!("{} {}", row.name, row.detail);
-                let score = pattern.score(Utf32Str::new(&haystack, &mut buffer), &mut self.matcher)?;
+                let score =
+                    pattern.score(Utf32Str::new(&haystack, &mut buffer), &mut self.matcher)?;
                 Some((score, index))
             })
             .collect();
@@ -216,11 +217,11 @@ impl App {
             KeyCode::Esc => return Step::Quit,
             KeyCode::Char('c') if ctrl => return Step::Quit,
             KeyCode::Enter => return self.accept(),
-            KeyCode::Left | KeyCode::Right if ctrl => {
-                if self.mode().has_opener() {
-                    self.opener = cycle(self.openers.len(), self.opener, key.code == KeyCode::Right);
-                }
+            KeyCode::Left | KeyCode::Right if ctrl && self.mode().has_opener() => {
+                self.opener = cycle(self.openers.len(), self.opener, key.code == KeyCode::Right);
             }
+            // no carousel in this mode: and not a mode switch either
+            KeyCode::Left | KeyCode::Right if ctrl => {}
             KeyCode::Left => return self.switch_mode(false),
             KeyCode::Right => return self.switch_mode(true),
             KeyCode::Char('h') if alt => return self.switch_mode(false),
@@ -315,7 +316,11 @@ pub(crate) mod tests {
         }
         assert_eq!(Mode::from_name("nope"), None);
         assert!(Mode::Create.has_opener() && Mode::Open.has_opener());
-        assert!(!Mode::Delete.has_opener() && !Mode::Checkout.has_opener() && !Mode::Claude.has_opener());
+        assert!(
+            !Mode::Delete.has_opener()
+                && !Mode::Checkout.has_opener()
+                && !Mode::Claude.has_opener()
+        );
     }
 
     #[test]
@@ -374,11 +379,19 @@ pub(crate) mod tests {
     #[test]
     fn selection_moves_within_the_matches() {
         let mut app = app(Mode::Open);
-        for down in [key(KeyCode::Down), with(KeyCode::Char('j'), KeyModifiers::ALT), with(KeyCode::Char('n'), KeyModifiers::CONTROL)] {
+        for down in [
+            key(KeyCode::Down),
+            with(KeyCode::Char('j'), KeyModifiers::ALT),
+            with(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        ] {
             app.handle_key(down);
         }
         assert_eq!(app.selected(), 2); // stops at the last row
-        for up in [key(KeyCode::Up), with(KeyCode::Char('k'), KeyModifiers::ALT), with(KeyCode::Char('p'), KeyModifiers::CONTROL)] {
+        for up in [
+            key(KeyCode::Up),
+            with(KeyCode::Char('k'), KeyModifiers::ALT),
+            with(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        ] {
             app.handle_key(up);
         }
         assert_eq!(app.selected(), 0);

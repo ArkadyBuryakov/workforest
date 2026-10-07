@@ -17,7 +17,7 @@ use crate::launch::{self, ShellAction, Target};
 use crate::util::{self, Env, one_line, repr};
 use crate::{hooks, makefile, output};
 
-const PROJECT_TEMPLATE: &str = include_str!("workforest/templates/project.yaml");
+const PROJECT_TEMPLATE: &str = include_str!("../resources/templates/project.yaml");
 
 /// What a command leaves for `cli.rs` to print.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -673,16 +673,22 @@ pub fn cmd_checkout(ctx: &Context, name: &str, force: bool) -> Result<Outcome> {
 /// Lock a worktree against `delete`, `checkout` and `prune`. A second lock
 /// is an error, as in git: it would silently replace the reason.
 pub fn cmd_lock(ctx: &Context, name: &str, reason: Option<&str>) -> Result<Outcome> {
-    let worktree = find_managed(ctx, name)?;
+    lock_found(ctx, &find_managed(ctx, name)?, reason)
+}
+
+/// Lock the worktree as we found it — someone else may have locked it
+/// since, in which case theirs is the lock the message names.
+fn lock_found(ctx: &Context, worktree: &Worktree, reason: Option<&str>) -> Result<Outcome> {
+    let name = worktree.name();
     let mut current = Some(worktree.clone());
     if worktree.locked.is_none() {
         match git::worktree_lock(&ctx.main, &worktree.path, reason) {
             Ok(()) => {
-                output::success(&format!("locked worktree {}", repr(name)));
+                output::success(&format!("locked worktree {}", repr(&name)));
                 return Ok(Outcome::Nothing);
             }
             Err(error) => {
-                current = registered(ctx, &worktree)?; // locked by someone else meanwhile?
+                current = registered(ctx, worktree)?; // locked by someone else meanwhile?
                 if current.as_ref().is_none_or(|current| current.locked.is_none()) {
                     return Err(error);
                 }
@@ -696,28 +702,32 @@ pub fn cmd_lock(ctx: &Context, name: &str, reason: Option<&str>) -> Result<Outco
         .unwrap_or_default();
     Err(Error::new(format!(
         "worktree {} is already locked{held} — run: wf unlock {name} to lock it anew",
-        repr(name)
+        repr(&name)
     )))
 }
 
 pub fn cmd_unlock(ctx: &Context, name: &str) -> Result<Outcome> {
-    let worktree = find_managed(ctx, name)?;
+    unlock_found(ctx, &find_managed(ctx, name)?)
+}
+
+fn unlock_found(ctx: &Context, worktree: &Worktree) -> Result<Outcome> {
+    let name = worktree.name();
     if worktree.locked.is_some() {
         match git::worktree_unlock(&ctx.main, &worktree.path) {
             Ok(()) => {
-                output::success(&format!("unlocked worktree {}", repr(name)));
+                output::success(&format!("unlocked worktree {}", repr(&name)));
                 return Ok(Outcome::Nothing);
             }
             Err(error) => {
                 // unlocked by someone else meanwhile?
-                let current = registered(ctx, &worktree)?;
+                let current = registered(ctx, worktree)?;
                 if current.is_none_or(|current| current.locked.is_some()) {
                     return Err(error);
                 }
             }
         }
     }
-    Err(Error::new(format!("worktree {} is not locked", repr(name))))
+    Err(Error::new(format!("worktree {} is not locked", repr(&name))))
 }
 
 fn records(count: usize) -> String {
@@ -864,138 +874,4 @@ fn show_config(config: &Config, as_json: bool) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::ConfigSource;
-
-    fn worktree(name: &str, locked: Option<&str>, prunable: Option<&str>) -> Worktree {
-        Worktree {
-            path: PathBuf::from("/wt").join(name),
-            head: "abc".into(),
-            branch: Some(format!("feature/{name}")),
-            is_main: false,
-            locked: locked.map(str::to_string),
-            prunable: prunable.map(str::to_string),
-        }
-    }
-
-    fn listed(worktree: Worktree, dirty: Option<bool>, stale: bool) -> ListedWorktree {
-        let state = WorktreeState { dirty, locked: worktree.locked.clone(), stale };
-        ListedWorktree { worktree, state }
-    }
-
-    #[test]
-    fn short_branch_name_is_the_last_segment() {
-        assert_eq!(short_branch_name("feature/auth/login"), "login");
-        assert_eq!(short_branch_name("main"), "main");
-    }
-
-    #[test]
-    fn state_labels() {
-        let label = |dirty, locked: Option<&str>, stale| {
-            WorktreeState { dirty, locked: locked.map(str::to_string), stale }.label()
-        };
-        assert_eq!(label(Some(false), None, false), "clean");
-        assert_eq!(label(Some(true), None, false), "dirty");
-        assert_eq!(label(None, None, true), "stale");
-        assert_eq!(label(Some(true), Some(""), false), "dirty locked");
-        assert_eq!(label(None, Some("usb"), true), "stale locked");
-    }
-
-    #[test]
-    fn porcelain_rows_are_six_tab_separated_fields() {
-        let clean = listed(worktree("a", None, None), Some(false), false);
-        assert_eq!(porcelain_row(&clean), "a\tfeature/a\t/wt/a\t0\t\t");
-        let locked = listed(worktree("b", Some("on a\n\tusb  drive"), None), Some(true), false);
-        assert_eq!(porcelain_row(&locked), "b\tfeature/b\t/wt/b\t1\tlocked on a usb drive\t");
-        let bare_lock = listed(worktree("c", Some(""), None), Some(false), false);
-        assert_eq!(porcelain_row(&bare_lock), "c\tfeature/c\t/wt/c\t0\tlocked\t");
-        let stale = listed(
-            worktree("d", None, Some("gitdir file points to non-existent location")),
-            None,
-            true,
-        );
-        assert_eq!(
-            porcelain_row(&stale),
-            "d\tfeature/d\t/wt/d\t\t\tprunable gitdir file points to non-existent location"
-        );
-        let stale_locked = listed(worktree("e", Some("x"), None), None, true);
-        assert_eq!(
-            porcelain_row(&stale_locked),
-            "e\tfeature/e\t/wt/e\t\tlocked x\tprunable the working tree is missing or is no longer a worktree"
-        );
-        let detached =
-            listed(Worktree { branch: None, ..worktree("f", None, None) }, Some(false), false);
-        assert_eq!(porcelain_row(&detached), "f\t\t/wt/f\t0\t\t");
-        assert_eq!(detached.branch_label(), "(detached)");
-    }
-
-    #[test]
-    fn json_rows_carry_every_field() {
-        let mut running = Running::new();
-        running.entry(PathBuf::from("/wt/a")).or_default().insert("dev".into(), 2);
-        let row =
-            worktree_json(&listed(worktree("a", Some(""), None), Some(true), false), &running);
-        assert_eq!(
-            row.to_string(),
-            r#"{"name":"a","branch":"feature/a","path":"/wt/a","dirty":true,"locked":"","prunable":null,"running":{"dev":2}}"#
-        );
-        let stale = listed(Worktree { branch: None, ..worktree("b", None, None) }, None, true);
-        assert_eq!(
-            worktree_json(&stale, &running).to_string(),
-            r#"{"name":"b","branch":null,"path":"/wt/b","dirty":null,"locked":null,"prunable":"the working tree is missing or is no longer a worktree","running":{}}"#
-        );
-    }
-
-    #[test]
-    fn inspecting_nothing_and_missing_directories() {
-        assert!(inspect(Vec::new()).is_empty());
-        let many: Vec<Worktree> =
-            (0..20).map(|index| worktree(&format!("w{index}"), None, None)).collect();
-        let listed = inspect(many.clone());
-        assert_eq!(listed.len(), 20);
-        // in order, and every missing directory reads as stale, never asked
-        assert!(listed.iter().zip(&many).all(|(listed, worktree)| listed.worktree == *worktree));
-        assert!(listed.iter().all(|listed| listed.state.stale && listed.state.dirty.is_none()));
-    }
-
-    #[test]
-    fn record_counts_are_singular_and_plural() {
-        assert_eq!(records(1), "1 stale worktree record");
-        assert_eq!(records(2), "2 stale worktree records");
-    }
-
-    #[test]
-    fn config_is_shown_with_its_sources() {
-        let defaults = show_config(&Config::default(), false);
-        assert!(
-            defaults.starts_with("worktrees_dir: $WF_MAIN/../worktrees/$WF_NAME\nopener: ''\n")
-        );
-        assert!(defaults.ends_with(
-            "  exclusive_scripts: []\n\n# sources (low -> high):\n#   (built-in defaults only)"
-        ));
-
-        let config = Config {
-            sources: vec![
-                ConfigSource {
-                    layer: "user",
-                    path: "/home/u/.config/workforest/config.yaml".into(),
-                },
-                ConfigSource { layer: "project", path: "/dev/api/.workforest.yaml".into() },
-            ],
-            ..Config::default()
-        };
-        assert!(show_config(&config, false).ends_with(
-            "# sources (low -> high):\n#   user: /home/u/.config/workforest/config.yaml\n#   project: /dev/api/.workforest.yaml"
-        ));
-        let json: Json = serde_json::from_str(&show_config(&config, true)).unwrap();
-        assert_eq!(json["config"]["stop_timeout"], 30.0);
-        assert_eq!(
-            json["sources"][1],
-            json!({"layer": "project", "path": "/dev/api/.workforest.yaml"})
-        );
-        assert!(
-            show_config(&config, true).starts_with("{\n  \"config\": {\n    \"worktrees_dir\": ")
-        );
-    }
-}
+mod tests;

@@ -27,6 +27,10 @@ thread_local! {
     static QUIET: Cell<bool> = const { Cell::new(false) };
     #[cfg(test)]
     static CAPTURED: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// A test's scripted terminal: the answers still to be typed.
+    #[cfg(test)]
+    static ANSWERS: RefCell<Option<std::collections::VecDeque<Answer>>> =
+        const { RefCell::new(None) };
 }
 
 /// The NO_COLOR / CLICOLOR_FORCE / isatty policy for everything we color;
@@ -113,7 +117,12 @@ pub fn error(text: &str) {
 
 /// True when we may prompt the user.
 pub fn interactive() -> bool {
-    io::stdin().is_terminal() && io::stderr().is_terminal()
+    // Under test there is a terminal exactly when a test scripted one,
+    // whatever `cargo test` itself was started from.
+    #[cfg(test)]
+    return ANSWERS.with_borrow(Option::is_some);
+    #[cfg(not(test))]
+    return io::stdin().is_terminal() && io::stderr().is_terminal();
 }
 
 /// What reading one line of an answer came to.
@@ -132,6 +141,10 @@ extern "C" fn note_interrupt(_signum: i32) {}
 /// us mid-prompt, so SIGINT is caught — without SA_RESTART, which is what
 /// lets it interrupt the read — for as long as we wait.
 fn read_answer() -> Answer {
+    #[cfg(test)]
+    if let Some(answer) = ANSWERS.with_borrow_mut(|answers| answers.as_mut()?.pop_front()) {
+        return answer;
+    }
     let action =
         SigAction::new(SigHandler::Handler(note_interrupt), SaFlags::empty(), SigSet::empty());
     // SAFETY: the handler does nothing, which is async-signal-safe.
@@ -207,6 +220,17 @@ fn confirm_with(question: &str, interactive: bool, read: impl FnOnce() -> Answer
     }
 }
 
+/// Pretend to be on a terminal for the closure, with these lines typed at
+/// the prompts in turn (then Ctrl-D).
+#[cfg(test)]
+pub fn with_terminal<T>(answers: &[&str], body: impl FnOnce() -> T) -> T {
+    let scripted = answers.iter().map(|line| Answer::Line(line.to_string())).chain([Answer::Eof]);
+    let outer = ANSWERS.replace(Some(scripted.collect()));
+    let result = body();
+    ANSWERS.set(outer);
+    result
+}
+
 /// Collect what the closure writes instead of sending it to stderr.
 #[cfg(test)]
 pub fn capture<T>(body: impl FnOnce() -> T) -> (T, String) {
@@ -224,6 +248,21 @@ mod tests {
     fn line(text: &str) -> impl FnOnce() -> Answer {
         let text = text.to_string();
         move || Answer::Line(text)
+    }
+
+    #[test]
+    fn a_scripted_terminal_answers_the_prompts_in_turn() {
+        assert!(!interactive());
+        let ((first, second, third), shown) = capture(|| {
+            with_terminal(&["y", " name "], || {
+                assert!(interactive());
+                (confirm("Sure?"), ask("Name?"), confirm("Again?"))
+            })
+        });
+        assert_eq!((first, second.as_deref(), third), (Ok(true), Ok("name"), Ok(false)));
+        assert_eq!(shown, "Sure? [y/N] Name? Again? [y/N] \n");
+        assert!(!interactive());
+        assert_eq!(confirm("Sure?").unwrap_err().kind, ErrorKind::Cancelled);
     }
 
     #[test]
