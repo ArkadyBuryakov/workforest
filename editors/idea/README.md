@@ -25,11 +25,16 @@ collapsible sections:
   `.workforest.yaml` edits and the running scripts of every worktree.
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened in this IDE first (never-opened ones by creation
-  time), each with its branch, a `●` when it has uncommitted changes, and
-  which one this window is in (bold). Hovering a row shows its details —
-  including its path — and its inline buttons: open in a new window, open
-  a terminal there, delete. Double-click opens it (as the *Open worktrees
-  in* setting says).
+  time), each with its branch, a `●` when it has uncommitted changes,
+  `locked` and `stale` when it is, and which one this window is in (bold).
+  Hovering a row shows its details — including its path and the lock
+  reason — and its inline buttons: open in a new window, open a terminal
+  there, delete. Double-click opens it (as the *Open worktrees in* setting
+  says). A locked worktree has Unlock where Delete was, and no Checkout. A
+  stale one — its directory is gone — offers only Delete (which drops its
+  record), or Unlock when it is also locked, and Copy Path; Prune Stale
+  Worktrees, in the section's context menu and under the header's `⋮`,
+  clears them all.
 
 Every row has a **context menu** with the rest: worktrees — open in a new
 or this window, open in terminal, run / stop a script *in that worktree*,
@@ -48,6 +53,9 @@ it) and only ask when this window is the main checkout.
 | Open Worktree… | opens the main checkout or a worktree in a new window, this window, or asks — see the *Open worktrees in* setting. |
 | Delete Worktree… | `workforest delete NAME --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Without a selected row it targets the worktree this window is in. Deleting the worktree this window shows replaces the window with the main checkout. |
 | Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout — this window's, without a selected row; offers to open it when no window shows it. |
+| Lock Worktree… | `workforest lock NAME [--reason TEXT]`, asking for the optional reason. A locked worktree cannot be deleted, checked out, or pruned. |
+| Unlock Worktree | `workforest unlock NAME`. |
+| Prune Stale Worktrees… | `workforest prune`, after showing what `workforest prune --dry-run` would remove. Never on a row. |
 | Run Script… | `workforest run NAME` — or `workforest make TARGET` for a makefile target — in a new terminal tab in the chosen worktree (this window's by default; from a worktree's context menu, that worktree), so Ctrl-C, colors, and background scripts behave exactly as in your shell. Needs the bundled Terminal plugin. |
 | Stop Script… | `workforest stop NAME` (`workforest stop --make TARGET` for a makefile target) in the chosen worktree. |
 | Open in Terminal | a terminal tab in the worktree's directory. |

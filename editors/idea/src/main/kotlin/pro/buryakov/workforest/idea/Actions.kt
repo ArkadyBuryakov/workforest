@@ -40,27 +40,44 @@ const val TREE_PLACE = "WorkforestTree"
 fun AnActionEvent.targetWorktree(): Worktree? = if (place == TOOLBAR_PLACE) null else getData(WORKTREE_KEY)
 fun AnActionEvent.targetScript(): ScriptInfo? = if (place == TOOLBAR_PLACE) null else getData(SCRIPT_KEY)
 
-abstract class WorkforestAction : AnAction(), DumbAware {
+/**
+ * [needsDirectory]: the action opens, or runs something in, the targeted
+ * worktree's directory — a stale worktree has none, so the action is not
+ * offered on its row.
+ */
+abstract class WorkforestAction(protected val needsDirectory: Boolean = false) : AnAction(), DumbAware {
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {
-        e.presentation.isEnabled = e.project?.basePath != null
+        val offered = !staleFor(e)
+        e.presentation.isVisible = offered
+        e.presentation.isEnabled = offered && e.project?.basePath != null
     }
+
+    protected fun staleFor(e: AnActionEvent): Boolean = needsDirectory && e.targetWorktree()?.isStale == true
 }
 
 /** Only for a targeted worktree (context menu, inline button); [managedOnly] hides it for the main checkout. */
-abstract class WorktreeItemAction(private val managedOnly: Boolean = false) : WorkforestAction() {
+abstract class WorktreeItemAction(private val managedOnly: Boolean = false, needsDirectory: Boolean = false) :
+    WorkforestAction(needsDirectory) {
     override fun update(e: AnActionEvent) {
         val worktree = e.targetWorktree()
         e.presentation.isEnabledAndVisible =
-            e.project?.basePath != null && worktree != null && !(managedOnly && worktree.isMain)
+            e.project?.basePath != null && worktree != null && !(managedOnly && worktree.isMain) && !staleFor(e)
     }
 }
 
-/** A managed worktree: a chooser without a target; hidden in the main checkout's menu. */
-abstract class ManagedWorktreeAction : WorkforestAction() {
+/**
+ * A managed worktree the action removes or locks: a chooser without a
+ * target; hidden in the main checkout's menu, and on a locked row — the CLI
+ * refuses to delete or check out a locked worktree, and Unlock takes the
+ * place.
+ */
+abstract class ManagedWorktreeAction(needsDirectory: Boolean = false) : WorkforestAction(needsDirectory) {
     override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project?.basePath != null && e.targetWorktree()?.isMain != true
+        val worktree = e.targetWorktree()
+        e.presentation.isEnabledAndVisible =
+            e.project?.basePath != null && worktree?.isMain != true && worktree?.isLocked != true && !staleFor(e)
     }
 }
 
@@ -101,17 +118,17 @@ class CreateWorktreeAction : WorkforestAction() {
 class OpenWorktreeAction : WorkforestAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        chooseWorktree(e, "Open Worktree", includeMain = true) { Projects.open(it.path, project) }
+        chooseWorktree(e, "Open Worktree", includeMain = true, needsDirectory = true) { Projects.open(it.path, project) }
     }
 }
 
-class OpenInNewWindowAction : WorktreeItemAction() {
+class OpenInNewWindowAction : WorktreeItemAction(needsDirectory = true) {
     override fun actionPerformed(e: AnActionEvent) {
         e.targetWorktree()?.let { Projects.openInNewWindow(it.path) }
     }
 }
 
-class OpenInThisWindowAction : WorktreeItemAction() {
+class OpenInThisWindowAction : WorktreeItemAction(needsDirectory = true) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         e.targetWorktree()?.let { Projects.openInsteadOf(it.path, project) }
@@ -132,6 +149,7 @@ class DeleteWorktreeAction : ManagedWorktreeAction() {
         chooseWorktreeOrCurrent(
             e,
             "Delete Worktree",
+            needsDirectory = false, // deleting a stale worktree is how its record goes
             confirm = { "Delete worktree '${it.name}'?\nThis window's worktree, on ${branchPhrase(it)}." },
             okText = "Delete",
         ) { worktree ->
@@ -165,12 +183,13 @@ class DeleteWorktreeAction : ManagedWorktreeAction() {
     }
 }
 
-class CheckoutWorktreeAction : ManagedWorktreeAction() {
+class CheckoutWorktreeAction : ManagedWorktreeAction(needsDirectory = true) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         chooseWorktreeOrCurrent(
             e,
             "Checkout into Main Checkout",
+            needsDirectory = true,
             confirm = {
                 "Check out '${it.branch ?: it.name}' in the main checkout?" +
                     "\nDeletes '${it.name}', this window's worktree."
@@ -190,9 +209,83 @@ class CheckoutWorktreeAction : ManagedWorktreeAction() {
     }
 }
 
+// --- lock / unlock / prune -----------------------------------------------
+
+/** `wf lock NAME [--reason TEXT]`: Delete, Checkout and Prune then refuse the worktree. */
+class LockWorktreeAction : ManagedWorktreeAction(needsDirectory = true) {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val root = WorktreeService.getInstance(project).root ?: return
+        chooseWorktree(e, "Lock Worktree", needsDirectory = true, unlockedOnly = true) { worktree ->
+            val reason = Messages.showInputDialog(
+                project,
+                "Delete, Checkout and Prune refuse a locked worktree until it is unlocked.\nWhy (optional):",
+                "Lock Worktree '${worktree.name}'",
+                null,
+            ) ?: return@chooseWorktree
+            val args = listOf("lock", worktree.name) + if (reason.isBlank()) emptyList() else listOf("--reason", reason.trim())
+            runInBackground(project, "Locking ${worktree.name}", work = { WorkforestCli.run(root, *args.toTypedArray()) }) {
+                refresh(project)
+            }
+        }
+    }
+}
+
+/** `wf unlock NAME`: on a locked row, where it stands in for Delete; a chooser of the locked ones elsewhere. */
+class UnlockWorktreeAction : WorkforestAction() {
+    override fun update(e: AnActionEvent) {
+        val worktree = e.targetWorktree()
+        e.presentation.isEnabledAndVisible =
+            e.project?.basePath != null && (worktree == null || (!worktree.isMain && worktree.isLocked))
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val root = WorktreeService.getInstance(project).root ?: return
+        chooseWorktree(e, "Unlock Worktree", only = { it.isLocked }, none = "No worktree is locked") { worktree ->
+            runInBackground(project, "Unlocking ${worktree.name}", work = { WorkforestCli.run(root, "unlock", worktree.name) }) {
+                refresh(project)
+            }
+        }
+    }
+}
+
+/**
+ * `wf prune`, after showing what `wf prune --dry-run` would remove. Never
+ * on a row: the failure it fixes is the one that leaves no usable row.
+ */
+class PruneWorktreesAction : WorkforestAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val root = WorktreeService.getInstance(project).root ?: return
+        // The CLI's own dry run decides: pruning is repository-wide and
+        // reaches records this tool window does not show.
+        val plan = runModal(project, "Looking for stale worktrees") { WorkforestCli.run(root, "prune", "--dry-run").stderr } ?: return
+        if (!Protocol.wouldPrune(plan)) {
+            WorkforestNotifications.info(project, Protocol.said(plan).ifEmpty { "No stale worktree records" })
+            refresh(project)
+            return
+        }
+        val answer = Messages.showYesNoDialog(
+            project,
+            Protocol.said(plan) + "\n\nOnly git's records go, never files. A worktree on a drive that is not mounted" +
+                " looks exactly like a deleted one: lock those instead.",
+            "Prune Stale Worktrees",
+            "Prune",
+            "Cancel",
+            Messages.getWarningIcon(),
+        )
+        if (answer != Messages.YES) return
+        runInBackground(project, "Pruning stale worktrees", work = { WorkforestCli.run(root, "prune").stderr }) { report ->
+            WorkforestNotifications.info(project, Protocol.said(report))
+            refresh(project)
+        }
+    }
+}
+
 // --- scripts -------------------------------------------------------------
 
-class StopScriptAction : WorkforestAction() {
+class StopScriptAction : WorkforestAction(needsDirectory = true) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val cwd = e.scriptCwd() ?: return
@@ -293,7 +386,8 @@ fun branchPhrase(worktree: Worktree): String =
 fun worktreeLabel(worktree: Worktree): String {
     val branch = worktree.branch ?: "(detached)"
     val role = if (worktree.isMain) "main checkout · " else ""
-    val state = if (worktree.dirty) " ●" else ""
+    val state = listOf(if (worktree.dirty) "●" else "", worktree.stateNote).filter { it.isNotEmpty() }
+        .joinToString(" ").let { if (it.isEmpty()) "" else " $it" }
     return "${worktree.name}  ($role$branch)$state"
 }
 
@@ -311,21 +405,42 @@ fun scriptIcon(script: ScriptInfo): Icon = when (script.kind) {
 /**
  * Hands the targeted worktree to [onChosen]; without one, asks with a
  * searchable popup of the managed worktrees (plus the main checkout when
- * [includeMain]).
+ * [includeMain]). Either way only a worktree the action can take: a stale
+ * one is left out when it [needsDirectory], a locked one when it works on
+ * the [unlockedOnly], and [only] narrows further — the popup has no menu
+ * to hide a row's actions in, so the rows themselves go ([none] says so
+ * when that leaves nothing).
  */
-fun chooseWorktree(e: AnActionEvent, title: String, includeMain: Boolean = false, onChosen: (Worktree) -> Unit) {
+fun chooseWorktree(
+    e: AnActionEvent,
+    title: String,
+    includeMain: Boolean = false,
+    needsDirectory: Boolean = false,
+    unlockedOnly: Boolean = false,
+    only: (Worktree) -> Boolean = { true },
+    none: String = "No worktree to choose: the others are locked or stale",
+    onChosen: (Worktree) -> Unit,
+) {
     val project = e.project ?: return
-    e.targetWorktree()?.let {
-        if (includeMain || !it.isMain) onChosen(it)
+    e.targetWorktree()?.let { target ->
+        val refusal = Protocol.refusal(target, needsDirectory, unlockedOnly)
+        when {
+            refusal != null -> WorkforestNotifications.warning(project, refusal)
+            (includeMain || !target.isMain) && only(target) -> onChosen(target)
+        }
         return
     }
     val root = WorktreeService.getInstance(project).root ?: return
     val forest = runModal(project, "Listing worktrees") { WorkforestCli.forest(root) } ?: return
     val recency = WorkforestRecency.getInstance()
-    val worktrees = Recency.order(forest.worktrees, recency::lastOpened, Recency::createdAt)
-        .let { if (includeMain) listOf(forest.main) + it else it }
+    val managed = Recency.order(forest.worktrees, recency::lastOpened, Recency::createdAt)
+    val worktrees = (if (includeMain) listOf(forest.main) + managed else managed)
+        .filter { Protocol.refusal(it, needsDirectory, unlockedOnly) == null && only(it) }
     if (worktrees.isEmpty()) {
-        WorkforestNotifications.info(project, "No worktrees yet: create one with Tools | Workforest | Create Worktree")
+        WorkforestNotifications.info(
+            project,
+            if (managed.isEmpty()) "No worktrees yet: create one with Tools | Workforest | Create Worktree" else none,
+        )
         return
     }
     choosePopup(title, worktrees, ::worktreeLabel, ::worktreeIcon, onChosen).showInBestPositionFor(e.dataContext)
@@ -340,6 +455,7 @@ fun chooseWorktree(e: AnActionEvent, title: String, includeMain: Boolean = false
 fun chooseWorktreeOrCurrent(
     e: AnActionEvent,
     title: String,
+    needsDirectory: Boolean,
     confirm: (Worktree) -> String,
     okText: String,
     onChosen: (Worktree) -> Unit,
@@ -347,7 +463,11 @@ fun chooseWorktreeOrCurrent(
     val project = e.project ?: return
     val current = if (e.targetWorktree() != null) null else WorktreeService.getInstance(project).current
     if (current == null || current.isMain) {
-        chooseWorktree(e, title, onChosen = onChosen)
+        chooseWorktree(e, title, needsDirectory = needsDirectory, unlockedOnly = true, onChosen = onChosen)
+        return
+    }
+    Protocol.refusal(current, needsDirectory, unlockedOnly = true)?.let {
+        WorkforestNotifications.warning(project, it)
         return
     }
     val answer = Messages.showYesNoDialog(

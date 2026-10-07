@@ -19,6 +19,8 @@
       <li><b>Open Worktree</b>: switch to any worktree of the forest — in a new window, this window, or ask.</li>
       <li><b>Checkout Worktree</b>: collapse a worktree back into the main checkout.</li>
       <li><b>Delete Worktree</b>: remove one, optionally with its branch.</li>
+      <li><b>Lock</b> / <b>Unlock Worktree</b>: keep one from being deleted, checked out, or pruned.
+          <b>Prune Stale Worktrees</b>: drop the records of worktrees whose directory is gone.</li>
       <li><b>Run Script</b> / <b>Stop Script</b>: a <code>scripts</code> entry of the project config, in a new
           terminal tab of the chosen worktree.</li>
       <li>Show the merged configuration, scaffold the project or local config, open a terminal in a worktree,
@@ -79,6 +81,14 @@
         <action id="Workforest.Delete" class="pro.buryakov.workforest.idea.DeleteWorktreeAction"
                 text="Delete Worktree…" description="Delete a worktree, optionally with its branch"
                 icon="AllIcons.Actions.GC"/>
+        <action id="Workforest.Lock" class="pro.buryakov.workforest.idea.LockWorktreeAction"
+                text="Lock Worktree…" description="Keep a worktree from being deleted, checked out, or pruned"
+                icon="AllIcons.Ide.Readonly"/>
+        <action id="Workforest.Unlock" class="pro.buryakov.workforest.idea.UnlockWorktreeAction"
+                text="Unlock Worktree" description="Remove a worktree's lock"
+                icon="AllIcons.Ide.Readwrite"/>
+        <action id="Workforest.Prune" class="pro.buryakov.workforest.idea.PruneWorktreesAction"
+                text="Prune Stale Worktrees…" description="Drop the records of worktrees whose directory is gone"/>
         <action id="Workforest.StopScript" class="pro.buryakov.workforest.idea.StopScriptAction"
                 text="Stop Script…" description="wf stop NAME in the chosen worktree"
                 icon="AllIcons.Actions.Suspend"/>
@@ -103,6 +113,10 @@
             <reference ref="Workforest.Checkout"/>
             <reference ref="Workforest.Delete"/>
             <separator/>
+            <reference ref="Workforest.Lock"/>
+            <reference ref="Workforest.Unlock"/>
+            <reference ref="Workforest.Prune"/>
+            <separator/>
             <reference ref="Workforest.StopScript"/>
             <separator/>
             <reference ref="Workforest.ShowConfig"/>
@@ -123,6 +137,10 @@
             <group id="Workforest.More" popup="true" icon="AllIcons.Actions.More" text="More">
                 <reference ref="Workforest.StopScript"/>
                 <separator/>
+                <reference ref="Workforest.Lock"/>
+                <reference ref="Workforest.Unlock"/>
+                <reference ref="Workforest.Prune"/>
+                <separator/>
                 <reference ref="Workforest.ShowConfig"/>
                 <reference ref="Workforest.Init"/>
                 <reference ref="Workforest.InitLocal"/>
@@ -139,7 +157,10 @@
             <reference ref="Workforest.StopScript"/>
             <separator/>
             <reference ref="Workforest.Checkout"/>
+            <!-- a locked row shows Unlock where Delete was; an unlocked one, Lock below it -->
             <reference ref="Workforest.Delete"/>
+            <reference ref="Workforest.Unlock"/>
+            <reference ref="Workforest.Lock"/>
             <separator/>
             <reference ref="Workforest.CopyPath"/>
         </group>
@@ -150,6 +171,8 @@
         </group>
         <group id="Workforest.WorktreesMenu">
             <reference ref="Workforest.Create"/>
+            <reference ref="Workforest.Prune"/>
+            <separator/>
             <reference ref="Workforest.Refresh"/>
         </group>
         <group id="Workforest.ScriptsMenu">

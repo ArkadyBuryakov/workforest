@@ -16,7 +16,7 @@ import pro.buryakov.workforest.idea.chooseWorktree
 import pro.buryakov.workforest.idea.scriptCwd
 import java.nio.file.Path
 
-class RunScriptAction : WorkforestAction() {
+class RunScriptAction : WorkforestAction(needsDirectory = true) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val cwd = e.scriptCwd() ?: return
@@ -39,10 +39,10 @@ class RunScriptAction : WorkforestAction() {
 }
 
 /** A terminal tab in a worktree's directory. */
-class OpenTerminalAction : WorkforestAction() {
+class OpenTerminalAction : WorkforestAction(needsDirectory = true) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        chooseWorktree(e, "Open Terminal In", includeMain = true) {
+        chooseWorktree(e, "Open Terminal In", includeMain = true, needsDirectory = true) {
             TerminalToolWindowManager.getInstance(project).createShellWidget(it.path.toString(), it.name, true, true)
         }
     }

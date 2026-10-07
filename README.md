@@ -490,10 +490,11 @@ the other IntelliJ-based IDEs (2025.2 or later) that puts the forest in the
 IDE: a **Workforest** tool window with the project's scripts and makefile
 targets (badged `make`, and where they are running) and the main checkout
 plus the worktrees (most
-recently opened first, dirty markers, the one this window is in), with
+recently opened first, dirty, locked and stale markers, the one this window
+is in), with
 tooltips, inline buttons, and context menus; commands to create, open,
 delete, and checkout worktrees (the last two on this window's worktree
-when nothing is selected),
+when nothing is selected), lock and unlock them, prune the stale ones,
 run and stop `scripts` and makefile targets in the IDE terminal, open a
 terminal in a worktree,
 show the merged configuration, and scaffold the project or the
@@ -530,9 +531,10 @@ editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
 its header and two collapsible sections, Scripts — the `scripts` entries
 and the makefile targets, badged `make` — (run/stop with one click, marked
 where they are running) and Worktrees (main checkout, then
-managed worktrees by recency, dirty markers, the worktree this window is
-in), commands to create, open, delete, and checkout worktrees (the last
-two on this window's worktree when invoked on no row), run and stop
+managed worktrees by recency, dirty, locked and stale markers, the worktree
+this window is in), commands to create, open, delete, and checkout
+worktrees (the last two on this window's worktree when invoked on no row),
+lock and unlock them, prune the stale ones, run and stop
 `scripts` and makefile targets in the integrated terminal, show the merged
 configuration, and scaffold the
 project or the `.vscode/.workforest.yaml` local config, plus a status bar
