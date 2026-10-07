@@ -8,7 +8,7 @@
 
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::fd::{AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -38,18 +38,7 @@ const SIGINT: i32 = Signal::SIGINT as i32;
 
 /// A duplicate of our stderr, for a child's stdout.
 fn stderr_for_child() -> std::io::Result<Stdio> {
-    Ok(Stdio::from(std::io::stderr().as_fd_owned()?))
-}
-
-trait AsFdOwned {
-    fn as_fd_owned(&self) -> std::io::Result<OwnedFd>;
-}
-
-impl AsFdOwned for std::io::Stderr {
-    fn as_fd_owned(&self) -> std::io::Result<OwnedFd> {
-        // SAFETY: fd 2 stays open for the life of the process.
-        unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }.try_clone_to_owned()
-    }
+    Ok(Stdio::from(std::io::stderr().as_fd().try_clone_to_owned()?))
 }
 
 /// Run a config-defined shell snippet with stdout diverted to stderr;
@@ -718,7 +707,7 @@ fn run_bulk(job: &Job) -> Result<i32> {
 #[cfg(test)]
 #[allow(clippy::zombie_processes)] // the pump reaps it, by pid
 pub(crate) fn test_runner(name: &str, command: &str, tty: bool) -> Runner {
-    use std::os::fd::FromRawFd;
+    use std::os::fd::{FromRawFd, OwnedFd};
     let (read_fd, write_fd) = open_channel(tty).unwrap();
     // SAFETY: the write end is duplicated for the child and closed below.
     let (out, err) = unsafe {

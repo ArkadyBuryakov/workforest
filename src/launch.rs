@@ -1002,7 +1002,12 @@ mod tests {
 
     #[test]
     fn death_by_signal_reports_signal_name() {
-        let error = run_background("kill -TERM $$").0.unwrap_err();
+        // The opener command itself, not a script it runs: a shell that
+        // forks for its last command (dash) would outlive the signal and
+        // report an exit status instead.
+        let launch = Launch::new();
+        let config = openers(&[("bg", background("kill -TERM $$"))]);
+        let error = launch.run(&config, Some("bg"), None, None, &env()).unwrap_err();
         assert_eq!(error.message, "opener was killed by SIGTERM right after launch");
     }
 
