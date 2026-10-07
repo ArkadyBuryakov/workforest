@@ -141,7 +141,7 @@ pub fn load(text: &str) -> Result<Value, String> {
             }
             Event::Scalar(text, style, anchor, tag) => {
                 let (value, is_merge) =
-                    scalar(&text, style, core_tag(&tag).map_err(&at)?).map_err(&at)?;
+                    scalar(&text, style, core_tag(&tag).map_err(at)?).map_err(at)?;
                 done = Some((value, is_merge, anchor));
             }
             Event::Alias(id) => {
@@ -150,13 +150,13 @@ pub fn load(text: &str) -> Result<Value, String> {
                 done = Some((value, false, 0));
             }
             Event::SequenceStart(anchor, tag) => {
-                if !matches!(core_tag(&tag).map_err(&at)?.as_deref(), None | Some("seq")) {
+                if !matches!(core_tag(&tag).map_err(at)?.as_deref(), None | Some("seq")) {
                     return Err(at("unsupported tag on a sequence".into()));
                 }
                 stack.push(Frame::List { anchor, items: Vec::new() });
             }
             Event::MappingStart(anchor, tag) => {
-                if !matches!(core_tag(&tag).map_err(&at)?.as_deref(), None | Some("map")) {
+                if !matches!(core_tag(&tag).map_err(at)?.as_deref(), None | Some("map")) {
                     return Err(at("unsupported tag on a mapping".into()));
                 }
                 stack.push(Frame::Map { anchor, pairs: Vec::new(), key: None });
@@ -168,7 +168,7 @@ pub fn load(text: &str) -> Result<Value, String> {
             }
             Event::MappingEnd => {
                 if let Some(Frame::Map { anchor, pairs, .. }) = stack.pop() {
-                    done = Some((finish_map(pairs).map_err(&at)?, false, anchor));
+                    done = Some((finish_map(pairs).map_err(at)?, false, anchor));
                 }
             }
             Event::Nothing | Event::StreamStart | Event::StreamEnd | Event::DocumentEnd => {}

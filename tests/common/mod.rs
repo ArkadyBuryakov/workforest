@@ -14,6 +14,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub const BINARY: &str = env!("CARGO_BIN_EXE_workforest");
@@ -366,9 +367,18 @@ impl Recorder {
 /// A process whose stdin and stderr are a terminal: prompts appear, and
 /// what is "typed" is ours to script. stdout stays a pipe, as it is under
 /// the shell wrapper.
+///
+/// What the program writes is read as it comes, so it never blocks on a
+/// full terminal buffer; a test waits for what it expects to see before it
+/// types the next thing (`expect`, `expect_screen`) — typing ahead would
+/// race the program for who reads the keys.
 pub struct Terminal {
     child: Child,
     master: fs::File,
+    seen: Arc<Mutex<Vec<u8>>>,
+    reader: Option<std::thread::JoinHandle<()>>,
+    rows: usize,
+    cols: usize,
 }
 
 impl Terminal {
@@ -402,7 +412,107 @@ impl Terminal {
         // SAFETY: the master descriptor is ours alone from here on.
         let master =
             unsafe { fs::File::from_raw_fd(std::os::fd::IntoRawFd::into_raw_fd(pty.master)) };
-        Self { child, master }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (mut source, sink) = (master.try_clone().unwrap(), Arc::clone(&seen));
+        let reader = std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            // An error (EIO) once the child, the last holder of the other
+            // end, is gone.
+            while let Ok(count) = source.read(&mut buffer) {
+                if count == 0 {
+                    break;
+                }
+                sink.lock().unwrap().extend_from_slice(&buffer[..count]);
+            }
+        });
+        Self { child, master, seen, reader: Some(reader), rows: rows.into(), cols: cols.into() }
+    }
+
+    /// Everything the terminal was sent so far (stderr, echoes and escape
+    /// sequences included), carriage returns dropped.
+    pub fn output(&self) -> String {
+        String::from_utf8_lossy(&self.seen.lock().unwrap()).replace('\r', "")
+    }
+
+    /// The screen as it stands, line by line: a small emulation — cursor
+    /// addressing and printing, which is all a frame uses. The last
+    /// frame can still be read after the interface closed.
+    pub fn screen(&self) -> Vec<String> {
+        let mut grid = vec![vec![' '; self.cols]; self.rows];
+        let (mut row, mut col) = (0usize, 0usize);
+        // Only what is drawn on the alternate screen is the interface;
+        // prompts and messages in between scroll by on the normal one.
+        let mut drawing = false;
+        let output = self.output();
+        let mut chars = output.chars();
+        while let Some(ch) = chars.next() {
+            if ch != '\x1b' {
+                if drawing && ch >= ' ' && row < self.rows && col < self.cols {
+                    grid[row][col] = ch;
+                    col += 1;
+                }
+                continue;
+            }
+            if chars.next() != Some('[') {
+                continue;
+            }
+            let mut parameters = String::new();
+            let command = loop {
+                match chars.next() {
+                    Some(c) if c.is_ascii_digit() || c == ';' || c == '?' => parameters.push(c),
+                    Some(c) => break c,
+                    None => break ' ',
+                }
+            };
+            match command {
+                'H' => {
+                    let mut parts =
+                        parameters.split(';').map(|part| part.parse::<usize>().unwrap_or(1));
+                    row = parts.next().unwrap_or(1).saturating_sub(1);
+                    col = parts.next().unwrap_or(1).saturating_sub(1);
+                }
+                'J' if parameters == "2" => grid.iter_mut().for_each(|line| line.fill(' ')),
+                // entering it starts a fresh screen; leaving freezes it
+                'h' if parameters == "?1049" => {
+                    drawing = true;
+                    grid.iter_mut().for_each(|line| line.fill(' '));
+                }
+                'l' if parameters == "?1049" => drawing = false,
+                _ => {}
+            }
+        }
+        grid.iter().map(|line| line.iter().collect::<String>().trim_end().to_string()).collect()
+    }
+
+    /// Wait until the terminal has been sent `text` since the output last
+    /// held `occurrences` of it.
+    #[track_caller]
+    pub fn expect_nth(&self, text: &str, occurrences: usize) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while self.output().matches(text).count() < occurrences {
+            assert!(
+                Instant::now() < deadline,
+                "never saw {text:?} ×{occurrences} in: {}",
+                self.output()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Wait until the terminal has been sent `text`.
+    #[track_caller]
+    pub fn expect(&self, text: &str) {
+        self.expect_nth(text, 1);
+    }
+
+    /// Wait until the screen satisfies `ready`.
+    #[track_caller]
+    pub fn expect_screen(&self, what: &str, ready: impl Fn(&[String]) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !ready(&self.screen()) {
+            assert!(Instant::now() < deadline, "never saw {what}: {:#?}", self.screen());
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     /// Type something.
@@ -410,13 +520,9 @@ impl Terminal {
         self.master.write_all(text.as_bytes()).unwrap();
     }
 
-    /// Give the program a moment to act on what was typed.
-    pub fn settle(&self) {
-        std::thread::sleep(Duration::from_millis(300));
-    }
-
     /// Wait for the end: the exit code, stdout, and everything the terminal
-    /// was sent (stderr, echoes and escape sequences included).
+    /// was sent.
+    #[track_caller]
     pub fn finish(mut self) -> (i32, String, String) {
         let mut stdout = self.child.stdout.take().unwrap();
         let out = std::thread::spawn(move || {
@@ -424,16 +530,28 @@ impl Terminal {
             let _ = stdout.read_to_string(&mut text);
             text
         });
-        let mut screen = Vec::new();
-        let mut buffer = [0u8; 4096];
-        // EIO once the child, the last holder of the other end, is gone.
-        while let Ok(count) = self.master.read(&mut buffer) {
-            if count == 0 {
-                break;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                break status;
             }
-            screen.extend_from_slice(&buffer[..count]);
+            if Instant::now() >= deadline {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                panic!("still running; the terminal shows: {}", self.output());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
         }
-        let status = self.child.wait().unwrap();
-        (exit_code(status), out.join().unwrap(), String::from_utf8_lossy(&screen).replace('\r', ""))
+        (exit_code(status), out.join().unwrap(), self.output())
+    }
+}
+
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }

@@ -26,7 +26,9 @@ paths:
   `make_dirty`) rather than raw git calls.
 - Anything that forks, installs signal handlers, or needs a terminal is an
   integration test: it belongs to a process of its own. `Terminal`
-  (`tests/common/mod.rs`) gives the binary a pseudo-terminal.
+  (`tests/common/mod.rs`) gives the binary a pseudo-terminal; wait for what
+  it shows (`expect`, `expect_screen`) before typing the next thing —
+  never sleep, and never type ahead.
 - A test that writes an executable and then runs it uses
   `write_executable` / `Sandbox::script`: written by a child process, so a
   concurrent test's fork cannot hold it open ("text file busy").

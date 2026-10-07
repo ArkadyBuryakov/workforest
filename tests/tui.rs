@@ -9,45 +9,20 @@ use common::{DIRECTIVE, Sandbox, Terminal};
 const ROWS: u16 = 12;
 const COLS: u16 = 72;
 
-/// The last frame of what a terminal was sent, as lines of text: a small
-/// emulation — cursor addressing and printing, which is all a frame uses.
-fn screen(output: &str) -> Vec<String> {
-    let mut grid = vec![vec![' '; COLS as usize]; ROWS as usize];
-    let (mut row, mut col) = (0usize, 0usize);
-    let mut chars = output.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\x1b' {
-            if ch >= ' ' && row < grid.len() && col < COLS as usize {
-                grid[row][col] = ch;
-                col += 1;
-            }
-            continue;
-        }
-        if chars.next() != Some('[') {
-            continue;
-        }
-        let mut parameters = String::new();
-        let command = loop {
-            match chars.next() {
-                Some(c) if c.is_ascii_digit() || c == ';' || c == '?' => parameters.push(c),
-                Some(c) => break c,
-                None => break ' ',
-            }
-        };
-        match command {
-            'H' => {
-                let mut parts =
-                    parameters.split(';').map(|part| part.parse::<usize>().unwrap_or(1));
-                row = parts.next().unwrap_or(1).saturating_sub(1);
-                col = parts.next().unwrap_or(1).saturating_sub(1);
-            }
-            'J' if parameters == "2" => grid.iter_mut().for_each(|line| line.fill(' ')),
-            // leaving the alternate screen ends the frame we want to read
-            'l' if parameters == "?1049" => break,
-            _ => {}
-        }
-    }
-    grid.iter().map(|line| line.iter().collect::<String>().trim_end().to_string()).collect()
+fn tabs(current: &str) -> String {
+    ["create", "open", "checkout", "delete"]
+        .map(|mode| {
+            let name = mode.to_uppercase();
+            if mode == current { format!("[{name}]") } else { format!(" {name} ") }
+        })
+        .join(" │ ")
+        .trim_end()
+        .to_string()
+}
+
+/// Wait for the interface to be up in `mode`.
+fn expect_mode(terminal: &Terminal, mode: &str) {
+    terminal.expect_screen(&format!("the {mode} tab"), |lines| lines[0] == tabs(mode));
 }
 
 #[test]
@@ -61,21 +36,21 @@ fn picking_a_worktree_opens_it() {
 
     // no arguments: the TUI, in OPEN since there is something to open
     let mut terminal = Terminal::spawn(&sandbox, &repo.path, &[], ROWS, COLS);
-    terminal.settle();
+    expect_mode(&terminal, "open");
+    let listed = terminal.screen();
+    assert_eq!(listed[1], "Open:");
+    assert_eq!(listed[3], "> feat       feat       clean locked");
+    assert_eq!(listed[4], "  fix-login  fix-login  dirty");
+    assert_eq!(listed[10], "opener  [edit] |  shell");
+
     terminal.send("fix");
-    terminal.settle();
+    terminal.expect_screen("the filtered list", |lines| lines[1] == "Open: fix");
+    assert_eq!(terminal.screen()[3], "> fix-login  fix-login  dirty");
     terminal.send("\r");
     let (code, out, output) = terminal.finish();
     assert_eq!(code, 0, "{output}");
     assert!(out.starts_with(&format!("{DIRECTIVE}cd {} && WF_MAIN=", fix.display())), "{out}");
     assert!(out.trim_end().ends_with(" /bin/sh -c stub-editor"));
-
-    let lines = screen(&output);
-    assert_eq!(lines[0], " CREATE  │ [OPEN] │  CHECKOUT  │  DELETE");
-    assert_eq!(lines[1], "Open: fix");
-    assert_eq!(lines[3], "> fix-login  fix-login  dirty");
-    assert_eq!(lines[10], "opener  [edit] |  shell");
-    assert!(output.contains("clean locked"), "the unfiltered list showed feat's state");
     assert!(output.contains("\x1b[?1049h") && output.contains("\x1b[?1049l"), "alternate screen");
 }
 
@@ -84,10 +59,13 @@ fn a_new_branch_is_created_from_what_was_typed_with_the_chosen_opener() {
     let sandbox = Sandbox::new();
     let repo = sandbox.repo("api");
     let mut terminal = Terminal::spawn(&sandbox, &repo.path, &["tui"], ROWS, COLS);
-    terminal.settle(); // CREATE: nothing to open yet
+    expect_mode(&terminal, "create"); // nothing to open yet
     terminal.send("brand/new");
     terminal.send("\x1b[1;5C"); // ctrl-→: the next opener, the shell
-    terminal.settle();
+    terminal.expect_screen("the shell opener", |lines| {
+        lines[1] == "Branch/New: brand/new" && lines[10] == "opener   edit  | [shell]"
+    });
+    assert_eq!(terminal.screen()[3], "  no match — enter creates this branch");
     terminal.send("\r");
     let (code, out, output) = terminal.finish();
     assert_eq!(code, 0, "{output}");
@@ -105,19 +83,21 @@ fn delete_stays_in_the_loop_and_esc_leaves_with_nothing() {
     let repo = sandbox.repo("api");
     let (one, two) = (repo.create("one"), repo.create("two"));
     let mut terminal = Terminal::spawn(&sandbox, &repo.path, &["tui", "delete"], ROWS, COLS);
-    terminal.settle();
-    terminal.send("one\r");
-    terminal.settle();
-    terminal.send("n\n"); // "Also delete branch 'one'?" — keep it
-    terminal.settle();
-    terminal.settle(); // back in the list
+    expect_mode(&terminal, "delete");
+    terminal.send("one");
+    terminal.expect_screen("the filtered list", |lines| lines[1] == "Delete: one");
+    terminal.send("\r");
+    terminal.expect("Also delete branch 'one'? [y/N] ");
+    terminal.send("n\n"); // keep it
+    // back in the list, which no longer has it
+    terminal.expect_nth("\x1b[?1049h", 2);
+    terminal.expect_screen("the list without it", |lines| {
+        lines[0] == tabs("delete") && lines[3] == "> two  two  clean"
+    });
     terminal.send("\x1b");
     let (code, out, output) = terminal.finish();
     assert_eq!((code, out.as_str()), (0, ""), "{output}");
-    assert!(
-        output.contains("deleted worktree 'one'")
-            && output.contains("Also delete branch 'one'? [y/N]")
-    );
+    assert!(output.contains("deleted worktree 'one'"));
     assert!(!one.exists() && two.exists());
     assert_eq!(repo.git(&["branch", "--list", "one"]).trim(), "one");
 }
@@ -131,19 +111,17 @@ fn switching_modes_reloads_the_list() {
     std::fs::remove_dir_all(&gone).unwrap();
     // only a stale worktree: nothing to open, but DELETE offers it
     let mut terminal = Terminal::spawn(&sandbox, &repo.path, &["tui", "open"], ROWS, COLS);
-    terminal.settle();
+    expect_mode(&terminal, "open");
+    assert_eq!(terminal.screen()[3], "  nothing here");
     terminal.send("\x1b[D"); // ←: CREATE
-    terminal.settle();
+    expect_mode(&terminal, "create");
+    assert_eq!(terminal.screen()[3], "> free-branch  local");
     terminal.send("\x1b[D"); // ←: wraps to DELETE
-    terminal.settle();
+    expect_mode(&terminal, "delete");
+    terminal.expect_screen("the stale worktree", |lines| lines[3] == "> gone  gone  stale");
     terminal.send("\x03"); // ctrl-c leaves, too
-    let (code, out, output) = terminal.finish();
+    let (code, out, _) = terminal.finish();
     assert_eq!((code, out.as_str()), (0, ""));
-    assert!(output.contains("nothing here"), "OPEN had nothing: {output}");
-    assert!(output.contains("free-branch"), "CREATE lists branches");
-    let lines = screen(&output);
-    assert_eq!(lines[0], " CREATE  │  OPEN  │  CHECKOUT  │ [DELETE]");
-    assert_eq!(lines[3], "> gone  gone  stale");
 }
 
 #[test]

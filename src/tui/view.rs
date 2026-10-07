@@ -84,10 +84,11 @@ fn row_line(row: &Row, selected: bool, name_width: usize, detail_width: usize) -
 fn list(app: &App, height: usize) -> Vec<Line<'static>> {
     let rows: Vec<&Row> = app.visible().collect();
     if rows.is_empty() {
-        let text = match (app.total(), app.mode()) {
-            (0, Mode::Create) => "no branches to offer — type a name to create one",
-            (0, _) => "nothing here",
-            (_, Mode::Create) => "no match — enter creates this branch",
+        let typed = !app.query().trim().is_empty();
+        let text = match (app.mode(), typed, app.total()) {
+            (Mode::Create, true, _) => "no match — enter creates this branch",
+            (Mode::Create, false, _) => "no branches to offer — type a name to create one",
+            (_, _, 0) => "nothing here",
             _ => "no match",
         };
         return vec![Line::from(Span::styled(format!("  {text}"), dim()))];
@@ -244,6 +245,7 @@ mod tests {
             "  no branches to offer — type a name to create one"
         );
         assert_eq!(message(Mode::Create, one(), "zzz"), "  no match — enter creates this branch");
+        assert_eq!(message(Mode::Create, vec![], "new"), "  no match — enter creates this branch");
         assert_eq!(message(Mode::Open, vec![], ""), "  nothing here");
         assert_eq!(message(Mode::Open, one(), "zzz"), "  no match");
     }

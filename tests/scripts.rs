@@ -389,13 +389,13 @@ fn a_background_script_detaches_logs_and_cleans_up() {
     let repo = sandbox.repo("api");
     let cleaned = sandbox.path().join("cleaned");
     repo.write_project_config(&format!(
-        "scripts:\n  bg:\n    command: echo \"out $WF_BRANCH\"; echo err >&2; sleep 0.6; exit 3\n    \
+        "scripts:\n  bg:\n    command: echo \"out $WF_BRANCH\"; echo err >&2; sleep 3; exit 3\n    \
          background: true\n    cleanup: echo done > {}\n",
         cleaned.display()
     ));
     let started = Instant::now();
     let result = repo.wf(&["run", "bg"]).ok();
-    assert!(started.elapsed().as_millis() < 600, "returned while the command still ran");
+    assert!(started.elapsed().as_secs() < 3, "returned while the command still ran");
 
     let found = records(&repo, "bg");
     assert_eq!(found.len(), 1);

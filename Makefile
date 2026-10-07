@@ -41,8 +41,9 @@ MAN := packaging/pypi/data/share/man
 STAMP := packaging/changelog/generate > /dev/null
 UNSTAMP := packaging/changelog/generate --placeholder > /dev/null
 
+# Every test binary runs even when one fails: one report, not one per fix.
 test:
-	cargo test --locked
+	cargo test --locked --no-fail-fast
 
 lint:
 	cargo fmt --check

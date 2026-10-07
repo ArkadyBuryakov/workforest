@@ -364,27 +364,24 @@ fn on_a_terminal_delete_asks_and_ctrl_c_cancels_the_command() {
     repo.make_dirty(&worktree);
 
     let mut terminal = Terminal::spawn(&sandbox, &repo.path, &["delete", "feat"], 24, 80);
-    terminal.settle();
+    terminal.expect("Delete anyway? [y/N] ");
     terminal.send("\x03"); // Ctrl-C at the question
     let (code, out, screen) = terminal.finish();
     assert_eq!((code, out.as_str()), (3, ""), "{screen}");
-    assert!(
-        screen.contains("Delete anyway? [y/N] ") && screen.contains("Error: cancelled"),
-        "{screen}"
-    );
+    assert!(screen.contains("Error: cancelled"), "{screen}");
     assert!(worktree.exists());
 
     let mut terminal = Terminal::spawn(&sandbox, &repo.path, &["delete", "feat"], 24, 80);
+    terminal.expect("Delete anyway? [y/N] ");
     terminal.send("y\n");
-    terminal.settle();
+    terminal.expect("Also delete branch 'feat'? [y/N] ");
     terminal.send("\x04"); // Ctrl-D declines deleting the branch
     let (code, _, screen) = terminal.finish();
     assert_eq!(code, 0, "{screen}");
     assert!(
-        screen.contains("deleted worktree 'feat'")
-            && screen.contains("Also delete branch 'feat'? [y/N] ")
+        screen.contains("deleted worktree 'feat'") && !screen.contains("deleted branch"),
+        "{screen}"
     );
-    assert!(!screen.contains("deleted branch"));
     assert!(!worktree.exists());
 }
 
