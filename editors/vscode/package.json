@@ -125,6 +125,24 @@
         "icon": "$(git-merge)"
       },
       {
+        "command": "workforest.lock",
+        "title": "Lock Worktree…",
+        "category": "Workforest",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "workforest.unlock",
+        "title": "Unlock Worktree",
+        "category": "Workforest",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "workforest.prune",
+        "title": "Prune Stale Worktrees…",
+        "category": "Workforest",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "workforest.runScript",
         "title": "Run Script…",
         "category": "Workforest",
@@ -210,7 +228,12 @@
         {
           "command": "workforest.stopScript",
           "when": "view == workforest.forest && workforest.state == ready",
-          "group": "1_scripts@1"
+          "group": "0_scripts@1"
+        },
+        {
+          "command": "workforest.prune",
+          "when": "view == workforest.forest && workforest.state == ready",
+          "group": "1_worktrees@1"
         },
         {
           "command": "workforest.showConfig",
@@ -236,57 +259,72 @@
       "view/item/context": [
         {
           "command": "workforest.openInNewWindow",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|stale\\|/)",
           "group": "inline@1"
         },
         {
           "command": "workforest.openTerminal",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|stale\\|/)",
           "group": "inline@2"
         },
         {
           "command": "workforest.delete",
-          "when": "view == workforest.forest && viewItem =~ /^worktree/",
+          "when": "view == workforest.forest && viewItem =~ /\\|worktree\\|/ && !(viewItem =~ /\\|locked\\|/)",
+          "group": "inline@3"
+        },
+        {
+          "command": "workforest.unlock",
+          "when": "view == workforest.forest && viewItem =~ /\\|worktree\\|/ && viewItem =~ /\\|locked\\|/",
           "group": "inline@3"
         },
         {
           "command": "workforest.openInNewWindow",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|stale\\|/)",
           "group": "1_open@1"
         },
         {
           "command": "workforest.openInCurrentWindow",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)$/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|current\\|/) && !(viewItem =~ /\\|stale\\|/)",
           "group": "1_open@2"
         },
         {
           "command": "workforest.openTerminal",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|stale\\|/)",
           "group": "1_open@3"
         },
         {
           "command": "workforest.runScript",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|stale\\|/)",
           "group": "2_scripts@1"
         },
         {
           "command": "workforest.stopScript",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/ && !(viewItem =~ /\\|stale\\|/)",
           "group": "2_scripts@2"
         },
         {
           "command": "workforest.checkout",
-          "when": "view == workforest.forest && viewItem =~ /^worktree/",
+          "when": "view == workforest.forest && viewItem =~ /\\|worktree\\|/ && !(viewItem =~ /\\|locked\\|/) && !(viewItem =~ /\\|stale\\|/)",
           "group": "3_lifecycle@1"
         },
         {
           "command": "workforest.delete",
-          "when": "view == workforest.forest && viewItem =~ /^worktree/",
+          "when": "view == workforest.forest && viewItem =~ /\\|worktree\\|/ && !(viewItem =~ /\\|locked\\|/)",
           "group": "3_lifecycle@2"
         },
         {
+          "command": "workforest.unlock",
+          "when": "view == workforest.forest && viewItem =~ /\\|worktree\\|/ && viewItem =~ /\\|locked\\|/",
+          "group": "3_lifecycle@2"
+        },
+        {
+          "command": "workforest.lock",
+          "when": "view == workforest.forest && viewItem =~ /\\|worktree\\|/ && !(viewItem =~ /\\|locked\\|/) && !(viewItem =~ /\\|stale\\|/)",
+          "group": "3_lifecycle@3"
+        },
+        {
           "command": "workforest.copyPath",
-          "when": "view == workforest.forest && viewItem =~ /^(main|worktree)/",
+          "when": "view == workforest.forest && viewItem =~ /\\|(main|worktree)\\|/",
           "group": "4_path@1"
         },
         {
@@ -327,7 +365,7 @@
         {
           "command": "workforest.refresh",
           "when": "view == workforest.forest && viewItem == section.worktrees",
-          "group": "1_section@2"
+          "group": "2_section@1"
         },
         {
           "command": "workforest.showConfig",
@@ -348,6 +386,16 @@
           "command": "workforest.refresh",
           "when": "view == workforest.forest && viewItem == section.scripts",
           "group": "2_section@1"
+        },
+        {
+          "command": "workforest.prune",
+          "when": "view == workforest.forest && viewItem == section.worktrees",
+          "group": "1_section@2"
+        },
+        {
+          "command": "workforest.prune",
+          "when": "view == workforest.forest && viewItem == forest",
+          "group": "1_forest@2"
         }
       ],
       "commandPalette": [

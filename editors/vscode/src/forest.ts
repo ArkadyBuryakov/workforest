@@ -9,8 +9,19 @@ export interface WorktreeInfo {
   name: string;
   branch: string | null; // null when detached
   path: string;
-  dirty: boolean;
+  dirty: boolean | null; // null when stale: never asked
+  locked: string | null; // the lock reason ('' when none was given); null when not locked
+  prunable: string | null; // why it is stale; null when it is a live worktree
   running: Record<string, number>; // the scripts running there: name → live instances
+}
+
+/** The record outlived its directory: nothing there to open or run in. */
+export function isStale(info: WorktreeInfo): boolean {
+  return info.prunable !== null;
+}
+
+export function isLocked(info: WorktreeInfo): boolean {
+  return info.locked !== null;
 }
 
 export interface Forest {
@@ -27,13 +38,19 @@ function isCountMap(value: unknown): value is Record<string, number> {
   return isRecord(value) && Object.values(value).every((count) => typeof count === 'number');
 }
 
+function isStringOrNull(value: unknown): value is string | null {
+  return typeof value === 'string' || value === null;
+}
+
 function asWorktree(value: unknown, where: string): WorktreeInfo {
   if (
     !isRecord(value) ||
     typeof value.name !== 'string' ||
     typeof value.path !== 'string' ||
-    typeof value.dirty !== 'boolean' ||
-    !(typeof value.branch === 'string' || value.branch === null) ||
+    !(typeof value.dirty === 'boolean' || value.dirty === null) ||
+    !isStringOrNull(value.branch) ||
+    !isStringOrNull(value.locked) ||
+    !isStringOrNull(value.prunable) ||
     !isCountMap(value.running)
   ) {
     throw new Error(`${where}: not a worktree entry`);
@@ -43,8 +60,68 @@ function asWorktree(value: unknown, where: string): WorktreeInfo {
     branch: value.branch,
     path: value.path,
     dirty: value.dirty,
+    locked: value.locked,
+    prunable: value.prunable,
     running: value.running,
   };
+}
+
+/**
+ * A tree row's `contextValue`: a bag of tokens, each between pipes —
+ * `|worktree|current|locked|`. The `when` clauses in package.json test one
+ * token each (`viewItem =~ /\|locked\|/`, or its negation), so the order
+ * and number of tokens never matter and no token can be mistaken for the
+ * start or the end of another: a new flag cannot silently take a menu item
+ * away, which is what an anchored pattern over a growing string does.
+ */
+export function entryContextValue(info: WorktreeInfo, isMain: boolean, isCurrent: boolean): string {
+  const tokens = [isMain ? 'main' : 'worktree'];
+  if (isCurrent) {
+    tokens.push('current');
+  }
+  if (isLocked(info)) {
+    tokens.push('locked');
+  }
+  if (isStale(info)) {
+    tokens.push('stale');
+  }
+  return `|${tokens.join('|')}|`;
+}
+
+/** What a row says after its branch: `●` for uncommitted changes, then
+ * `stale` and `locked`. */
+export function stateNote(info: WorktreeInfo): string {
+  const marks = [];
+  if (info.dirty === true) {
+    marks.push('●');
+  }
+  if (isStale(info)) {
+    marks.push('stale');
+  }
+  if (isLocked(info)) {
+    marks.push('locked');
+  }
+  return marks.join(' ');
+}
+
+/** The same in words, one tooltip line each. */
+export function stateLines(info: WorktreeInfo): string[] {
+  const lines = [];
+  if (info.prunable !== null) {
+    lines.push(`state: stale — ${oneLine(info.prunable)}`);
+  } else {
+    lines.push(`state: ${info.dirty === true ? 'uncommitted changes' : 'clean'}`);
+  }
+  if (info.locked !== null) {
+    const reason = oneLine(info.locked);
+    lines.push(reason.length > 0 ? `locked: ${reason}` : 'locked');
+  }
+  return lines;
+}
+
+/** A lock reason may span lines; a row, a tooltip line and a sentence do not. */
+export function oneLine(text: string): string {
+  return text.split(/\s+/).filter((word) => word.length > 0).join(' ');
 }
 
 /** Parse `workforest list --json`. */
@@ -282,6 +359,22 @@ export function failureMessage(stderr: string, fallback: string): string {
 /** The stable phrase cli.py prints when the directory is outside any repository. */
 export function isNotARepo(stderr: string): boolean {
   return stderr.includes('Not inside a git repository');
+}
+
+/** Everything a `workforest` call said on stderr, as one line of text:
+ * `wf prune` reports there, and a notification has no lines. */
+export function said(stderr: string): string {
+  return stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(' · ');
+}
+
+/** Does `wf prune --dry-run` have anything to prune? The stable phrase
+ * cli.py opens its answer with when it does. */
+export function wouldPrune(stderr: string): boolean {
+  return stderr.trimStart().startsWith('would prune ');
 }
 
 /** The worktree name `wf create BRANCH` will use: the last path component. */

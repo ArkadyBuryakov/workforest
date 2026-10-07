@@ -2,15 +2,26 @@
 
 Completion must never break the shell: any error yields an empty candidate
 list, and everything stays on stdout as plain lines. Most topics emit bare
-names; `commands`, `openers` and `branches` emit `NAME<TAB>DESCRIPTION` so
-shells that can render descriptions (zsh) do, while others take field 1.
+names; `commands`, `openers`, `branches` and `unlockable` emit
+`NAME<TAB>DESCRIPTION` so shells that can render descriptions (zsh) do,
+while others take field 1.
 """
 
 from workforest import commands, gitutil, launch, makefile
 from workforest.config import Config, load_config
 from workforest.errors import WorkforestError
 
-TOPICS = ("commands", "branches", "worktrees", "scripts", "make", "openers", "claude-sessions")
+TOPICS = (
+    "commands",
+    "branches",
+    "worktrees",
+    "lockable",
+    "unlockable",
+    "scripts",
+    "make",
+    "openers",
+    "claude-sessions",
+)
 
 
 def complete(topic: str) -> list[str]:
@@ -28,6 +39,16 @@ def _complete(topic: str) -> list[str]:
             return _branches()
         case "worktrees":
             return _worktrees()
+        case "lockable":
+            return [w.name for w in _managed() if w.locked is None]
+        case "unlockable":
+            # one line each, whatever the reason holds: a tab or newline in
+            # it would break the line protocol
+            return [
+                f"{w.name}\t{commands.one_line(w.locked) or 'locked'}"
+                for w in _managed()
+                if w.locked is not None
+            ]
         case "scripts":
             return sorted(name for name, spec in _config().scripts.items() if not spec.hidden)
         case "make":
@@ -89,9 +110,14 @@ def _branches() -> list[str]:
     return lines
 
 
+def _managed() -> list[gitutil.Worktree]:
+    """Straight from git's listing — no directory is visited, so a stale
+    record cannot empty the candidates."""
+    return commands.managed_worktrees(commands.build_context())
+
+
 def _worktrees() -> list[str]:
-    ctx = commands.build_context()
-    return [w.name for w in commands.managed_worktrees(ctx)]
+    return [w.name for w in _managed()]
 
 
 def _claude_sessions() -> list[str]:

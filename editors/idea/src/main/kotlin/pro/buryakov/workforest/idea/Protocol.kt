@@ -13,11 +13,25 @@ data class Worktree(
     val name: String,
     val branch: String?,
     val path: Path,
+    /** Uncommitted changes; false for a stale worktree, which is never asked. */
     val dirty: Boolean,
     val isMain: Boolean = false,
     /** The scripts running there: name → how many instances. */
     val running: Map<String, Int> = emptyMap(),
-)
+    /** The lock reason, empty when none was given; null when not locked. */
+    val locked: String? = null,
+    /** Why the worktree is stale — its directory is gone; null when it is a live one. */
+    val prunable: String? = null,
+) {
+    val isLocked: Boolean get() = locked != null
+
+    /** The record outlived its directory: nothing there to open or run in. */
+    val isStale: Boolean get() = prunable != null
+
+    /** What a row says after its branch: "stale", "locked", "stale locked", or nothing. */
+    val stateNote: String
+        get() = listOfNotNull("stale".takeIf { isStale }, "locked".takeIf { isLocked }).joinToString(" ")
+}
 
 /** `list --json`: the whole forest. */
 data class Forest(val main: Worktree, val worktreesDir: Path, val worktrees: List<Worktree>)
@@ -72,9 +86,41 @@ object Protocol {
         name = entry.get("name").asString,
         branch = entry.get("branch")?.takeUnless { it.isJsonNull }?.asString,
         path = Path.of(entry.get("path").asString),
-        dirty = entry.get("dirty").asBoolean,
+        dirty = entry.get("dirty").let { !it.isJsonNull && it.asBoolean }, // null when stale: never asked
         running = entry.getAsJsonObject("running").entrySet().associate { (name, count) -> name to count.asInt },
+        locked = entry.get("locked").takeUnless { it.isJsonNull }?.asString,
+        prunable = entry.get("prunable").takeUnless { it.isJsonNull }?.asString,
     )
+
+    /** A lock reason may span lines; a row, a tooltip line and a sentence do not. */
+    fun oneLine(text: String): String = text.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
+
+    /**
+     * Why an action cannot take [worktree], as a sentence for the user; null
+     * when it can. The menus hide what a row cannot do, but an action also
+     * arrives from a shortcut, a double-click, or the toolbar acting on this
+     * window's own worktree. [needsDirectory]: opening, terminals, scripts,
+     * checkout — a stale worktree has none. [unlockedOnly]: delete and
+     * checkout, which the CLI refuses on a locked worktree.
+     */
+    fun refusal(worktree: Worktree, needsDirectory: Boolean, unlockedOnly: Boolean): String? = when {
+        needsDirectory && worktree.isStale && worktree.isLocked ->
+            "Worktree '${worktree.name}' is stale and locked: unlock it, then prune the stale worktrees"
+        needsDirectory && worktree.isStale ->
+            "Worktree '${worktree.name}' is stale: its directory is gone. Delete it, or prune the stale worktrees"
+        unlockedOnly && worktree.isLocked -> {
+            val reason = oneLine(worktree.locked.orEmpty())
+            "Worktree '${worktree.name}' is locked${if (reason.isEmpty()) "" else " ($reason)"}: unlock it first"
+        }
+        else -> null
+    }
+
+    /** Does `prune --dry-run` have anything to prune? The stable phrase cli.py opens its answer with when it does. */
+    fun wouldPrune(stderr: String): Boolean = stderr.trimStart().startsWith("would prune ")
+
+    /** Everything a call said on stderr, one sentence per line: `prune` reports there. */
+    fun said(stderr: String): String =
+        stderr.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
 
     /**
      * The `scripts` of `config --json` (`{"config": {"scripts": {...}}, "sources": [...]}`), by name;

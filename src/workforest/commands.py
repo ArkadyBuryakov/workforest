@@ -17,7 +17,13 @@ from workforest.config import (
     load_config,
     resolve_worktrees_dir,
 )
-from workforest.errors import CancelledError, NotARepoError, UsageError, WorkforestError
+from workforest.errors import (
+    CancelledError,
+    GitError,
+    NotARepoError,
+    UsageError,
+    WorkforestError,
+)
 from workforest.launch import ShellAction
 
 type CommandResult = ShellAction | str | None
@@ -58,6 +64,102 @@ def find_managed(ctx: Context, name: str) -> gitutil.Worktree:
         if worktree.name == name:
             return worktree
     raise WorkforestError(f"worktree {name!r} not found in {ctx.worktrees_dir}")
+
+
+def one_line(text: str) -> str:
+    """Whitespace runs collapsed to one space: a lock reason may hold tabs
+    and newlines, and every line-oriented output is one record per line."""
+    return " ".join(text.split())
+
+
+def _locked_error(worktree: gitutil.Worktree) -> WorkforestError:
+    reason = f" ({one_line(worktree.locked)})" if worktree.locked else ""
+    name = worktree.name
+    return WorkforestError(f"worktree {name!r} is locked{reason} — run: wf unlock {name}")
+
+
+def _stale_error(worktree: gitutil.Worktree, then: str = "") -> WorkforestError:
+    name = worktree.name
+    if worktree.locked is not None:
+        # `prune` skips a locked record, so naming it alone would be a dead end.
+        return WorkforestError(
+            f"worktree {name!r} is stale and locked — run: wf unlock {name}, then wf prune"
+        )
+    return WorkforestError(f"worktree {name!r} is stale — run: wf prune{then}")
+
+
+def _registered(ctx: Context, worktree: gitutil.Worktree) -> gitutil.Worktree | None:
+    """The record as git has it now — it may have been locked, unlocked or
+    pruned by someone else since we listed it."""
+    return next((w for w in gitutil.list_worktrees(ctx.main) if w.path == worktree.path), None)
+
+
+def _remove(ctx: Context, worktree: gitutil.Worktree) -> None:
+    try:
+        gitutil.worktree_remove(ctx.main, worktree.path, force=True)
+    except GitError:
+        # Locked since the check: say so in our words, not git's `fatal:`.
+        current = _registered(ctx, worktree)
+        if current is not None and current.locked is not None:
+            raise _locked_error(current) from None
+        raise
+
+
+def _prune(ctx: Context) -> list[gitutil.Worktree]:
+    """`git worktree prune`, returning the records it dropped."""
+    before = gitutil.list_worktrees(ctx.main)
+    gitutil.worktree_prune(ctx.main)
+    left = {w.path for w in gitutil.list_worktrees(ctx.main)}
+    return [w for w in before if w.path not in left]
+
+
+def _label(ctx: Context, worktree: gitutil.Worktree) -> str:
+    """A worktree by name when it is one of ours, by path otherwise."""
+    return worktree.name if _is_managed(ctx, worktree) else str(worktree.path)
+
+
+def _warn_left_behind(worktree: gitutil.Worktree) -> None:
+    output.warn(
+        f"left {worktree.path} in place: it is no longer a worktree, "
+        "and whatever is in it is yours to keep or remove"
+    )
+
+
+def _forget(ctx: Context, worktree: gitutil.Worktree) -> None:
+    """Drop one stale, unlocked record, never touching files.
+
+    With the directory gone git removes just that record. With the
+    directory still there (its `.git` file is what went missing) git
+    refuses, and only a repository-wide prune clears it — so say what else
+    went, and that the directory stays."""
+    if _registered(ctx, worktree) is None:
+        return  # already gone, e.g. pruned along with an earlier one
+    if not worktree.path.exists():
+        _remove(ctx, worktree)
+        return
+    pruned = _prune(ctx)
+    others = [w for w in pruned if w.path != worktree.path]
+    if len(others) == len(pruned):
+        # Still there: locked since the check is the one way prune skips it.
+        raise _locked_error(_registered(ctx, worktree) or worktree)
+    _warn_left_behind(worktree)
+    if others:
+        names = ", ".join(_label(ctx, w) for w in others)
+        output.warn(f"also pruned the other stale worktree records: {names}")
+
+
+def _clear_stale(ctx: Context, worktree: gitutil.Worktree) -> None:
+    """`create` found a stale record in its way: git does not prune on
+    `worktree add`, so do it — unless a lock says to keep the record."""
+    if worktree.locked is not None:
+        if _is_managed(ctx, worktree):
+            raise _stale_error(worktree)
+        raise WorkforestError(
+            f"a stale, locked worktree record at {worktree.path} is in the way — "
+            f"run: git worktree unlock {worktree.path}, then wf prune"
+        )
+    _forget(ctx, worktree)
+    output.warn(f"pruned the stale worktree record at {worktree.path}")
 
 
 def short_branch_name(branch: str) -> str:
@@ -132,13 +234,21 @@ def cmd_create(
     branch = resolved.branch
 
     existing = gitutil.find_branch_worktree(branch, ctx.main)
+    if existing is not None and gitutil.is_stale(existing):
+        _clear_stale(ctx, existing)
+        existing = None
     if existing is not None:
         output.warn(f"branch {branch!r} already checked out at {existing.path}")
         worktree_path = existing.path
     else:
         worktree_path = ctx.worktrees_dir / short_branch_name(branch)
-        registered = {w.path for w in gitutil.list_worktrees(ctx.main)}
-        if worktree_path in registered:
+        occupant = next(
+            (w for w in gitutil.list_worktrees(ctx.main) if w.path == worktree_path), None
+        )
+        if occupant is not None and gitutil.is_stale(occupant):
+            _clear_stale(ctx, occupant)
+            occupant = None
+        if occupant is not None:
             # Same directory name, different branch (feat/x vs fix/x): never
             # silently reuse another branch's worktree.
             raise WorkforestError(
@@ -187,6 +297,10 @@ def cmd_open(
         if current is None:
             raise UsageError("worktree name required (or run inside a managed worktree)")
         worktree = current
+    if gitutil.is_stale(worktree):
+        # A lock never blocks opening; a missing directory has to.
+        again = f", then wf create {worktree.branch}" if worktree.branch else ""
+        raise _stale_error(worktree, again)
     return launch.launch(
         ctx.config,
         main=ctx.main,
@@ -199,23 +313,66 @@ def cmd_open(
     )
 
 
-def _dirty_flags(worktrees: list[gitutil.Worktree]) -> list[bool]:
-    """One `git status` per worktree; subprocess-bound, so run them together."""
+@dataclass(slots=True, frozen=True)
+class WorktreeState:
+    dirty: bool | None  # None when stale: never asked
+    locked: str | None  # the lock reason, "" when none was given
+    stale: bool
+
+    @property
+    def label(self) -> str:
+        """`clean`, `dirty` or `stale`, plus `locked`."""
+        word = "stale" if self.stale else "dirty" if self.dirty else "clean"
+        return f"{word} locked" if self.locked is not None else word
+
+
+@dataclass(slots=True, frozen=True)
+class ListedWorktree:
+    worktree: gitutil.Worktree
+    state: WorktreeState
+
+    @property
+    def prunable(self) -> str | None:
+        """Why the record is stale, None when it is not. Git gives no
+        reason for a stale record that is locked, so there is a stock one."""
+        if not self.state.stale:
+            return None
+        return self.worktree.prunable or "the working tree is missing or is no longer a worktree"
+
+
+def _inspect_one(worktree: gitutil.Worktree) -> ListedWorktree:
+    stale = gitutil.is_stale(worktree)
+    dirty: bool | None = None
+    if not stale:
+        # Only ever in a directory that is a worktree: anywhere else git
+        # would fail, or answer for the repository enclosing it.
+        try:
+            dirty = bool(gitutil.status_porcelain(worktree.path))
+        except GitError, OSError:
+            stale = True  # went away, or broke, since the listing
+    return ListedWorktree(worktree, WorktreeState(dirty, worktree.locked, stale))
+
+
+def _inspect(worktrees: list[gitutil.Worktree]) -> list[ListedWorktree]:
+    """One `git status` per live worktree; subprocess-bound, so run them
+    together."""
     if not worktrees:
         return []
     with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
-        return list(pool.map(lambda w: bool(gitutil.status_porcelain(w.path)), worktrees))
+        return list(pool.map(_inspect_one, worktrees))
 
 
-def _worktree_json(
-    worktree: gitutil.Worktree, dirty: bool, running: dict[str, int]
-) -> dict[str, Any]:
+def _worktree_json(listed: ListedWorktree, running: dict[Path, dict[str, int]]) -> dict[str, Any]:
+    worktree = listed.worktree
     return {
         "name": worktree.name,
         "branch": worktree.branch,  # null when detached
         "path": str(worktree.path),
-        "dirty": dirty,
-        "running": running,  # scripts running there: name → live instances
+        "dirty": listed.state.dirty,  # null when stale: never asked
+        "locked": listed.state.locked,  # the reason ("" for none); null when not locked
+        "prunable": listed.prunable,  # why it is stale; null when it is not
+        # scripts running there: name → live instances
+        "running": running.get(worktree.path, {}),
     }
 
 
@@ -224,43 +381,60 @@ def _list_json(ctx: Context) -> str:
     checkout in the same shape as the worktrees, plus where they live and
     what is running in each."""
     everything = gitutil.list_worktrees(ctx.main)
-    main, worktrees = everything[0], [w for w in everything if _is_managed(ctx, w)]
-    dirty = _dirty_flags([main, *worktrees])
+    main, *worktrees = _inspect([everything[0], *(w for w in everything if _is_managed(ctx, w))])
     running = hooks.running_scripts(ctx.main)
     data = {
-        "main": _worktree_json(main, dirty[0], running.get(main.path, {})),
+        "main": _worktree_json(main, running),
         "worktrees_dir": str(ctx.worktrees_dir),
-        "worktrees": [
-            _worktree_json(w, d, running.get(w.path, {}))
-            for w, d in zip(worktrees, dirty[1:], strict=True)
-        ],
+        "worktrees": [_worktree_json(listed, running) for listed in worktrees],
     }
     return json.dumps(data, indent=2)
+
+
+def _flag_column(flag: str, reason: str | None) -> str:
+    """A git flag as one TSV field: empty when absent, else the flag's own
+    name and, after a space, its reason on one line — never empty for a
+    flag that is set, whatever the reason."""
+    if reason is None:
+        return ""
+    return f"{flag} {one_line(reason)}".rstrip()
+
+
+def _porcelain_row(listed: ListedWorktree) -> str:
+    worktree, state = listed.worktree, listed.state
+    dirty = "" if state.dirty is None else "1" if state.dirty else "0"
+    return "\t".join(
+        (
+            worktree.name,
+            worktree.branch or "",
+            str(worktree.path),
+            dirty,
+            _flag_column("locked", state.locked),
+            _flag_column("prunable", listed.prunable),
+        )
+    )
 
 
 def cmd_list(ctx: Context, *, porcelain: bool = False, as_json: bool = False) -> CommandResult:
     if as_json:
         return _list_json(ctx)
-    worktrees = managed_worktrees(ctx)
-    if not worktrees:
+    listing = _inspect(managed_worktrees(ctx))
+    if not listing:
         if porcelain:
             return ""
         output.info(f"no worktrees in {ctx.worktrees_dir} (create one with: wf create BRANCH)")
         return None
-    dirty = _dirty_flags(worktrees)
     if porcelain:
-        return "\n".join(
-            "\t".join((w.name, w.branch or "", str(w.path), "1" if is_dirty else "0"))
-            for w, is_dirty in zip(worktrees, dirty, strict=True)
-        )
-    name_width = max(len(w.name) for w in worktrees)
-    branch_width = max(len(w.branch or "(detached)") for w in worktrees)
-    rows = [
-        f"{w.name:<{name_width}}  {w.branch or '(detached)':<{branch_width}}  "
-        f"{'dirty' if is_dirty else 'clean'}  {w.path}"
-        for w, is_dirty in zip(worktrees, dirty, strict=True)
-    ]
-    return "\n".join(rows)
+        return "\n".join(_porcelain_row(listed) for listed in listing)
+    name_width = max(len(listed.worktree.name) for listed in listing)
+    branch_width = max(len(listed.worktree.branch or "(detached)") for listed in listing)
+    state_width = max(len(listed.state.label) for listed in listing)
+    return "\n".join(
+        f"{listed.worktree.name:<{name_width}}  "
+        f"{listed.worktree.branch or '(detached)':<{branch_width}}  "
+        f"{listed.state.label:<{state_width}}  {listed.worktree.path}"
+        for listed in listing
+    )
 
 
 def _confirm_dirty(worktree: gitutil.Worktree, question: str, *, force: bool) -> None:
@@ -291,11 +465,23 @@ def cmd_delete(
     # Resolve every name first: a typo must fail the batch before anything
     # is deleted, not strand it half-done.
     worktrees = [find_managed(ctx, name) for name in names]
+    # The lock check belongs to the same pre-pass. --force never overrides a
+    # lock: it answers "uncommitted changes", and one flag for both is how
+    # the worktree locked against deletion gets deleted.
     for worktree in worktrees:
-        _confirm_dirty(worktree, "Delete anyway?", force=force)
+        if worktree.locked is not None:
+            raise _locked_error(worktree)
+    for worktree in worktrees:
         branch = worktree.branch
-        gitutil.worktree_remove(ctx.main, worktree.path, force=True)
-        output.success(f"deleted worktree {worktree.name!r}")
+        if gitutil.is_stale(worktree):
+            # Nothing to ask about and no files of ours to remove: only
+            # the record goes.
+            _forget(ctx, worktree)
+            output.success(f"pruned stale worktree {worktree.name!r}")
+        else:
+            _confirm_dirty(worktree, "Delete anyway?", force=force)
+            _remove(ctx, worktree)
+            output.success(f"deleted worktree {worktree.name!r}")
         if worktree.path == ctx.cwd_root:
             # The shell is standing in the directory we just removed —
             # move it back to the main checkout.
@@ -316,6 +502,10 @@ def cmd_delete(
 
 def cmd_checkout(ctx: Context, name: str, *, force: bool = False) -> CommandResult:
     worktree = find_managed(ctx, name)
+    if gitutil.is_stale(worktree):
+        raise _stale_error(worktree)
+    if worktree.locked is not None:
+        raise _locked_error(worktree)
     branch = worktree.branch
     if branch is None:
         raise WorkforestError(f"cannot determine branch for worktree {name!r} (detached HEAD)")
@@ -324,11 +514,77 @@ def cmd_checkout(ctx: Context, name: str, *, force: bool = False) -> CommandResu
         "Delete worktree and checkout its branch in the main repo anyway?",
         force=force,
     )
-    gitutil.worktree_remove(ctx.main, worktree.path, force=True)
+    _remove(ctx, worktree)
     output.success(f"deleted worktree {name!r}")
     gitutil.checkout(ctx.main, branch)
     output.success(f"checked out {branch!r} in {ctx.main}")
     return launch.cd_action(ctx.main)
+
+
+def cmd_lock(ctx: Context, name: str, *, reason: str | None = None) -> CommandResult:
+    """Lock a worktree against `delete`, `checkout` and `prune`. A second
+    lock is an error, as in git: it would silently replace the reason."""
+    worktree = find_managed(ctx, name)
+    current: gitutil.Worktree | None = worktree
+    if worktree.locked is None:
+        try:
+            gitutil.worktree_lock(ctx.main, worktree.path, reason)
+        except GitError:
+            current = _registered(ctx, worktree)  # locked by someone else meanwhile?
+            if current is None or current.locked is None:
+                raise
+        else:
+            output.success(f"locked worktree {name!r}")
+            return None
+    held = f" ({one_line(current.locked)})" if current and current.locked else ""
+    raise WorkforestError(
+        f"worktree {name!r} is already locked{held} — run: wf unlock {name} to lock it anew"
+    )
+
+
+def cmd_unlock(ctx: Context, name: str) -> CommandResult:
+    worktree = find_managed(ctx, name)
+    if worktree.locked is not None:
+        try:
+            gitutil.worktree_unlock(ctx.main, worktree.path)
+        except GitError:
+            current = _registered(ctx, worktree)  # unlocked by someone else meanwhile?
+            if current is None or current.locked is not None:
+                raise
+        else:
+            output.success(f"unlocked worktree {name!r}")
+            return None
+    raise WorkforestError(f"worktree {name!r} is not locked")
+
+
+def _records(count: int) -> str:
+    return f"{count} stale worktree record{'' if count == 1 else 's'}"
+
+
+def cmd_prune(ctx: Context, *, dry_run: bool = False) -> CommandResult:
+    """Drop the records of worktrees that are gone. Repository-wide — git
+    cannot prune one record — so every record removed is named, ours or
+    not; and a locked one is kept and named too, rather than reporting
+    nothing to do while a broken row sits in the listing."""
+    stale = [w for w in gitutil.list_worktrees(ctx.main) if gitutil.is_stale(w)]
+    held = [w for w in stale if w.locked is not None]
+    gone = [w for w in stale if w.locked is None] if dry_run else _prune(ctx)
+    if gone:
+        names = ", ".join(_label(ctx, w) for w in gone)
+        if dry_run:
+            output.info(f"would prune {_records(len(gone))}: {names}")
+        else:
+            output.success(f"pruned {_records(len(gone))}: {names}")
+            for worktree in gone:
+                if worktree.path.exists():
+                    _warn_left_behind(worktree)
+    elif not held:
+        output.info("no stale worktree records")
+    if held:
+        names = ", ".join(_label(ctx, w) for w in held)
+        verb = "is" if len(held) == 1 else "are"
+        output.warn(f"{_records(len(held))} {verb} locked: {names} — unlock to prune")
+    return None
 
 
 def _current_script_env(ctx: Context) -> dict[str, str]:

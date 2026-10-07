@@ -42,6 +42,17 @@ workforest, wf \- git worktree forest management
 .I NAME
 .RB [ \-\-force ]
 .YS
+.SY "workforest lock"
+.I NAME
+.RB [ \-\-reason
+.IR TEXT ]
+.YS
+.SY "workforest unlock"
+.I NAME
+.YS
+.SY "workforest prune"
+.RB [ \-n ]
+.YS
 .SY "workforest run"
 .RB [ \-b ]
 .I SCRIPT
@@ -171,6 +182,8 @@ Skip symlinks and setup scripts.
 Create only; do not open.
 .SS open [\fINAME\fR]
 Open an existing worktree with an opener.
+A lock does not prevent this; a stale worktree has no directory to open
+and is refused.
 Without
 .IR NAME ,
 open the managed worktree the current directory is in.
@@ -182,18 +195,42 @@ and
 options as
 .BR create .
 .SS list
-List managed worktrees: name, branch, clean/dirty state, and path.
+List managed worktrees: name, branch, state, and path.
+The state is
+.BR clean ,
+.BR dirty ,
+or
+.B stale
+\(em the worktree's directory, or the
+.I .git
+file in it, is gone while git still has its record (see
+.BR prune )
+\(em followed by
+.B locked
+when the worktree is locked (see
+.BR lock ).
+A stale worktree is never asked for its changes, so it is neither clean
+nor dirty.
 .TP
 .B \-\-porcelain
-Stable machine-readable output, one worktree per line:
-.IR NAME ,
-.IR BRANCH ,
-.IR PATH ,
-and
+Stable machine-readable output, one worktree per line, six fields
+separated by tabs:
+.IR NAME ;
+.IR BRANCH
+(empty when detached);
+.IR PATH ;
 .B 1
-(dirty) or
+(dirty),
 .B 0
-(clean), separated by tabs.
+(clean), or empty (stale);
+the lock \(em empty when there is none, else the word
+.B locked
+followed, after a space, by the reason if one was given;
+and likewise the word
+.B prunable
+and why, for a stale worktree.
+A reason is always on one line here: any run of whitespace in it,
+newlines and tabs included, is written as a single space.
 .TP
 .B \-\-json
 The whole forest as a JSON object, for editor integrations and other
@@ -207,7 +244,12 @@ carry
 (null when detached),
 .BR path ,
 .B dirty
-(true/false),
+(true/false, null for a stale worktree),
+.B locked
+(the lock reason exactly as given, an empty string for a lock without
+one, null when not locked),
+.B prunable
+(why the worktree is stale, null when it is not),
 and
 .B running
 (an object mapping the name of each script running there to how many
@@ -223,9 +265,21 @@ afterwards, on a terminal, you are asked whether to delete its branch
 too.
 Deleting the worktree you are standing in moves the shell back to the
 main checkout.
+.PP
+A locked worktree is refused, and with it the whole batch: unlock it
+first.
+A stale worktree has nothing to delete, so only its record is removed;
+if its directory is still there (it lost its
+.I .git
+file) the files are left alone, the directory is named on standard
+error, and \(em git being unable to clear that one record alone \(em every
+other stale record goes too, as with
+.BR prune ,
+each named.
 .TP
 .B \-\-force
 Skip the dirty-worktree confirmation.
+It never overrides a lock.
 .TP
 .B \-\-delete\-branch
 Also delete the branch, without asking.
@@ -235,9 +289,62 @@ Never delete the branch.
 .SS checkout \fINAME\fR
 Collapse a worktree back into the main checkout: delete it, then check
 its branch out in the main worktree and move the shell there.
+A locked or stale worktree is refused.
 .TP
 .B \-\-force
 Skip the dirty-worktree confirmation.
+It never overrides a lock.
+.SS lock \fINAME\fR [\fB\-\-reason\fR \fITEXT\fR]
+Lock a worktree:
+.B delete
+and
+.B checkout
+refuse it and
+.B prune
+keeps its record, until it is unlocked.
+Meant for a worktree on a drive that is not always mounted, and for one
+that must not be cleaned up by accident.
+The lock is advisory and is git's own
+.RB ( "git worktree lock" ):
+the worktree still opens, runs scripts, and can be edited, and nothing
+stops its directory from being removed by hand.
+Locking a worktree that is already locked is an error \(em unlock it
+first to change the reason.
+.TP
+.BI \-\-reason " TEXT"
+Why it is locked; shown by
+.B list
+and in the refusals.
+.SS unlock \fINAME\fR
+Remove a worktree's lock.
+Unlocking a worktree that is not locked is an error.
+.SS prune [\fB\-n\fR]
+Remove the records of stale worktrees \(em those whose directory, or the
+.I .git
+file in it, is gone.
+Until then git still holds their branches as checked out, and
+.B list
+shows them as
+.BR stale .
+No file is ever removed: a directory that outlived its record stays
+where it is and is named on standard error.
+.PP
+This is
+.BR "git worktree prune" ,
+which works on the whole repository, so records outside the worktrees
+directory go too; every record removed is named, by path when it is not
+a managed worktree.
+A locked record is kept, and named as well.
+A worktree on an unmounted drive looks exactly like a deleted one:
+check with
+.B \-n
+first, and
+.B lock
+what is only away.
+Nothing to prune is not an error.
+.TP
+.BR \-n ", " \-\-dry\-run
+Only say what would be pruned.
 .SS run [\fB\-b\fR] \fISCRIPT\fR [\fIARGS\fR...]
 Run the named script from the merged configuration's
 .B scripts

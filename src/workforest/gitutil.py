@@ -44,18 +44,34 @@ class Worktree:
     head: str
     branch: str | None  # short name; None when detached or bare
     is_main: bool
+    # Git's own flags, each with its reason: None when absent, "" when git
+    # gave none (a lock without --reason is a bare `locked`).
+    locked: str | None = None
+    prunable: str | None = None
 
     @property
     def name(self) -> str:
         return self.path.name
 
 
+def is_stale(worktree: Worktree) -> bool:
+    """Prunable per git, or the admin link is gone. A locked stale record
+    is not reported prunable, so git's own flag is not enough; and the
+    directory existing is not enough either — without its `.git` file it is
+    a plain directory git would answer for from whatever repository
+    encloses it. One stat, no git spawn."""
+    if worktree.is_main:
+        return False
+    return worktree.prunable is not None or not (worktree.path / ".git").exists()
+
+
 def parse_worktree_porcelain(data: str) -> list[Worktree]:
     """Parse `git worktree list --porcelain -z` output.
 
     Records are groups of NUL-terminated attribute lines separated by an
-    empty entry. Unknown attributes (locked, prunable, future ones) are
-    ignored. The first record is the main worktree — a git guarantee.
+    empty entry; a value (a lock reason) may itself contain newlines.
+    Unknown attributes are ignored. The first record is the main worktree —
+    a git guarantee.
     """
     worktrees: list[Worktree] = []
     record: dict[str, str] = {}
@@ -81,6 +97,8 @@ def _record_to_worktree(record: dict[str, str], *, is_main: bool) -> Worktree:
         head=record.get("HEAD", ""),
         branch=branch,
         is_main=is_main,
+        locked=record.get("locked"),
+        prunable=record.get("prunable"),
     )
 
 
@@ -162,6 +180,25 @@ def worktree_remove(repo: Path, path: Path, *, force: bool = False) -> None:
     if force:
         args.append("--force")
     run_git([*args, str(path)], cwd=repo)
+
+
+def worktree_lock(repo: Path, path: Path, reason: str | None = None) -> None:
+    args = ["worktree", "lock"]
+    if reason:
+        args += ["--reason", reason]
+    run_git([*args, str(path)], cwd=repo)
+
+
+def worktree_unlock(repo: Path, path: Path) -> None:
+    run_git(["worktree", "unlock", str(path)], cwd=repo)
+
+
+def worktree_prune(repo: Path) -> None:
+    """Drop every stale record that is not locked. Repository-wide: git has
+    no way to prune one record. What went is the difference between two
+    `list_worktrees` calls, never git's human-readable `-v` output — and a
+    dry run is the `prunable` flag of the listing, so it needs no spawn."""
+    run_git(["worktree", "prune"], cwd=repo)
 
 
 def checkout(path: Path, branch: str) -> None:

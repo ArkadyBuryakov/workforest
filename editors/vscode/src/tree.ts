@@ -13,10 +13,14 @@ import {
   RunningState,
   ScriptInfo,
   WorktreeInfo,
+  entryContextValue,
+  isStale,
   runningLabel,
   runningNote,
   runningState,
   scriptDescription,
+  stateLines,
+  stateNote,
 } from './forest';
 import { ForestModel } from './model';
 
@@ -140,24 +144,30 @@ export class ForestTree implements vscode.TreeDataProvider<Node> {
     const { info, isMain, isCurrent } = node;
     const item = new vscode.TreeItem(info.name, vscode.TreeItemCollapsibleState.None);
     const branch = info.branch ?? '(detached)';
-    const state = info.dirty ? '●' : '';
+    const state = stateNote(info);
     const here = isCurrent ? '(this window)' : '';
     item.description = [isMain ? `main checkout · ${branch}` : branch, state, here]
       .filter((part) => part.length > 0)
       .join(' ');
     item.iconPath = new vscode.ThemeIcon(
       isMain ? 'repo' : 'git-branch',
-      isCurrent ? new vscode.ThemeColor('list.highlightForeground') : undefined,
+      isStale(info)
+        ? new vscode.ThemeColor('disabledForeground')
+        : isCurrent
+          ? new vscode.ThemeColor('list.highlightForeground')
+          : undefined,
     );
-    item.contextValue = `${isMain ? 'main' : 'worktree'}${isCurrent ? '.current' : ''}`;
-    item.tooltip = new vscode.MarkdownString(
-      [
-        `**${info.name}**${isMain ? ' — main checkout' : ''}`,
-        `branch: \`${branch}\``,
-        `state: ${info.dirty ? 'uncommitted changes' : 'clean'}`,
-        `path: \`${info.path}\``,
-      ].join('  \n'),
-    );
+    item.contextValue = entryContextValue(info, isMain, isCurrent);
+    const tooltip = new vscode.MarkdownString();
+    // appendText escapes: a lock reason is whatever somebody typed.
+    tooltip.appendMarkdown(`**${info.name}**${isMain ? ' — main checkout' : ''}  \n`);
+    tooltip.appendMarkdown(`branch: \`${branch}\`  \n`);
+    for (const line of stateLines(info)) {
+      tooltip.appendText(line);
+      tooltip.appendMarkdown('  \n');
+    }
+    tooltip.appendMarkdown(`path: \`${info.path}\``);
+    item.tooltip = tooltip;
     return item;
   }
 

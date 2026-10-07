@@ -36,6 +36,8 @@ opened, and cleaned up with one command.
 - **Run** named project scripts with well-known `WF_*` environment variables.
 - **Delete** worktrees safely, or **checkout**: collapse one back into the
   main checkout.
+- **Lock** the ones that must not be cleaned up, and **prune** the records
+  of those whose directory is gone.
 - Drive everything from an interactive fzf **TUI** (`wf` with no arguments).
 
 ## Install
@@ -87,6 +89,8 @@ wf run make check -j2       # extra args are appended to the script command
 wf make check               # any makefile target, tracked like a script
 wf checkout login           # fold the branch back into the main checkout
 wf delete fix-y             # remove a worktree (asks about dirty changes)
+wf lock big-migration       # delete/checkout/prune refuse it until `wf unlock`
+wf prune                    # forget worktrees whose directory is gone
 wf                          # interactive TUI (fzf)
 ```
 
@@ -413,6 +417,9 @@ workforest open   [NAME]   [-o OPENER] [-w WRAPPER] [-p PATH]
 workforest list   [--porcelain | --json]
 workforest delete NAME...  [--force] [--delete-branch | --keep-branch]
 workforest checkout NAME   [--force]
+workforest lock   NAME     [--reason TEXT]
+workforest unlock NAME
+workforest prune  [-n]
 workforest run    [-b] SCRIPT [ARGS...]
 workforest make   [-b] TARGET [ARGS...]
 workforest stop   SCRIPT [--all] [--make]
@@ -431,6 +438,28 @@ exactly one remote (checked out tracking it), then a brand-new branch.
 carry the same branch name; if that local name is already taken, `create`
 prompts for a different one.
 
+`list` shows each worktree's state: `clean`, `dirty`, or `stale` — its
+directory (or the `.git` file in it) is gone while git still has its record
+— followed by `locked` when it is locked. A stale worktree is never asked
+for its changes, cannot be opened or checked out, and keeps its branch
+"checked out" as far as git is concerned until its record goes: `wf prune`
+removes every stale record (`-n`/`--dry-run` only names them), `wf delete
+NAME` removes that one, and `wf create` clears one that is in its way. None
+of them removes files: a directory that outlived its record (it lost its
+`.git` file) stays where it is and is named on stderr — and since git can
+only clear such a record repository-wide, `wf delete` on one prunes the
+other stale records too, naming each. `prune` is `git worktree prune`: it
+covers the whole repository, records outside the worktrees directory
+included, and names everything it removed. A worktree on an unmounted drive
+looks exactly like a deleted one — that is what locking is for.
+
+`wf lock NAME [--reason TEXT]` makes `delete` and `checkout` refuse the
+worktree and `prune` keep its record until `wf unlock NAME`. `--force` never
+overrides a lock — it only answers the uncommitted-changes question. The
+lock is git's own (`git worktree lock`) and advisory: a locked worktree
+still opens, runs scripts, and can be edited. Locking twice, or unlocking
+what is not locked, is an error.
+
 `workforest claude` (shown only when `~/.claude` exists) copies a Claude
 Code session from the main worktree into the current one. It is
 **experimental**: it manipulates Claude Code's private on-disk state,
@@ -441,11 +470,18 @@ Exit codes: `0` ok · `1` error · `2` usage · `3` cancelled · `4` config erro
 Human messages go to stderr; stdout carries only machine output (`cd`
 directives for the shell function, `--porcelain`/`--json` listings, dumps).
 `list --json` describes the whole forest for programs — `main` (the main
-checkout, in the same `name`/`branch`/`path`/`dirty`/`running` shape as each
-entry of `worktrees`, `running` being an object mapping the name of each
-script running there — a makefile target under `make:TARGET` — to how many
-instances of it run) and the resolved `worktrees_dir` — and is what the
-editor extensions read.
+checkout, in the same `name`/`branch`/`path`/`dirty`/`locked`/`prunable`/`running`
+shape as each entry of `worktrees`: `dirty` is null for a stale worktree,
+`locked` the lock reason as given (`""` for none, null when not locked),
+`prunable` why the worktree is stale (null when it is not), `running` an
+object mapping the name of each script running there — a makefile target
+under `make:TARGET` — to how many instances of it run) and the resolved
+`worktrees_dir` — and is what the editor extensions read.
+`list --porcelain` is one worktree per line, six tab-separated fields:
+name, branch (empty when detached), path, `1`/`0` for dirty/clean (empty
+when stale), the lock (empty, or `locked` followed by a space and the
+reason if there is one) and likewise `prunable` and why. A reason is
+flattened to one line there — any run of whitespace becomes one space.
 
 ## JetBrains IDE plugin
 
@@ -454,10 +490,11 @@ the other IntelliJ-based IDEs (2025.2 or later) that puts the forest in the
 IDE: a **Workforest** tool window with the project's scripts and makefile
 targets (badged `make`, and where they are running) and the main checkout
 plus the worktrees (most
-recently opened first, dirty markers, the one this window is in), with
+recently opened first, dirty, locked and stale markers, the one this window
+is in), with
 tooltips, inline buttons, and context menus; commands to create, open,
 delete, and checkout worktrees (the last two on this window's worktree
-when nothing is selected),
+when nothing is selected), lock and unlock them, prune the stale ones,
 run and stop `scripts` and makefile targets in the IDE terminal, open a
 terminal in a worktree,
 show the merged configuration, and scaffold the project or the
@@ -494,9 +531,10 @@ editor: a **Workforest** sidebar with the JetBrains plugin's toolbar in
 its header and two collapsible sections, Scripts — the `scripts` entries
 and the makefile targets, badged `make` — (run/stop with one click, marked
 where they are running) and Worktrees (main checkout, then
-managed worktrees by recency, dirty markers, the worktree this window is
-in), commands to create, open, delete, and checkout worktrees (the last
-two on this window's worktree when invoked on no row), run and stop
+managed worktrees by recency, dirty, locked and stale markers, the worktree
+this window is in), commands to create, open, delete, and checkout
+worktrees (the last two on this window's worktree when invoked on no row),
+lock and unlock them, prune the stale ones, run and stop
 `scripts` and makefile targets in the integrated terminal, show the merged
 configuration, and scaffold the
 project or the `.vscode/.workforest.yaml` local config, plus a status bar

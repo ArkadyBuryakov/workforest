@@ -21,6 +21,9 @@ SUBCOMMAND_HELP: dict[str, str] = {
     "list": "list managed worktrees",
     "delete": "delete worktree(s)",
     "checkout": "delete a worktree and check its branch out in main",
+    "lock": "lock a worktree against delete, checkout and prune",
+    "unlock": "unlock a locked worktree",
+    "prune": "drop the records of worktrees whose directory is gone",
     "run": "run a named script from the merged config",
     "make": "run a makefile target (like `make TARGET` at the worktree root)",
     "stop": "stop a running script (this worktree's instances, or --all)",
@@ -100,6 +103,21 @@ def _handle_delete(ns: argparse.Namespace) -> CommandResult:
 def _handle_checkout(ns: argparse.Namespace) -> CommandResult:
     ctx = commands.build_context()
     return commands.cmd_checkout(ctx, ns.name, force=ns.force)
+
+
+def _handle_lock(ns: argparse.Namespace) -> CommandResult:
+    ctx = commands.build_context()
+    return commands.cmd_lock(ctx, ns.name, reason=ns.reason)
+
+
+def _handle_unlock(ns: argparse.Namespace) -> CommandResult:
+    ctx = commands.build_context()
+    return commands.cmd_unlock(ctx, ns.name)
+
+
+def _handle_prune(ns: argparse.Namespace) -> CommandResult:
+    ctx = commands.build_context()
+    return commands.cmd_prune(ctx, dry_run=ns.dry_run)
 
 
 def _handle_run(ns: argparse.Namespace) -> CommandResult:
@@ -202,6 +220,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name", metavar="NAME")
     p.add_argument("--force", action="store_true", help="skip the dirty-worktree confirmation")
     p.set_defaults(func=_handle_checkout)
+
+    p = sub.add_parser("lock", help=SUBCOMMAND_HELP["lock"])
+    p.add_argument("name", metavar="NAME")
+    p.add_argument("--reason", metavar="TEXT", help="why, shown wherever the lock is")
+    p.set_defaults(func=_handle_lock)
+
+    p = sub.add_parser("unlock", help=SUBCOMMAND_HELP["unlock"])
+    p.add_argument("name", metavar="NAME")
+    p.set_defaults(func=_handle_unlock)
+
+    p = sub.add_parser("prune", help=SUBCOMMAND_HELP["prune"])
+    p.add_argument("-n", "--dry-run", action="store_true", help="only say what would be pruned")
+    p.set_defaults(func=_handle_prune)
 
     p = sub.add_parser("run", help=SUBCOMMAND_HELP["run"])
     p.add_argument(

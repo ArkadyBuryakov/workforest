@@ -11,6 +11,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.ColoredTreeCellRenderer
@@ -76,10 +77,17 @@ private const val LEAD = 8
 private fun inlineButtons(node: Any?): List<InlineButton> {
     fun button(id: String, icon: Icon, text: String) = InlineButton(id, icon, text).takeIf { ActionsUtil.exists(id) }
     return when (node) {
+        // A stale worktree has no directory to open; a locked one cannot be
+        // deleted, so Unlock — an open padlock, nothing like the bin — takes
+        // Delete's place.
         is Worktree -> listOfNotNull(
-            button("Workforest.OpenInNewWindow", AllIcons.Actions.OpenNewTab, "Open in New Window"),
-            button("Workforest.OpenTerminal", AllIcons.Nodes.Console, "Open in Terminal"),
-            if (node.isMain) null else button("Workforest.Delete", AllIcons.Actions.GC, "Delete Worktree"),
+            if (node.isStale) null else button("Workforest.OpenInNewWindow", AllIcons.Actions.OpenNewTab, "Open in New Window"),
+            if (node.isStale) null else button("Workforest.OpenTerminal", AllIcons.Nodes.Console, "Open in Terminal"),
+            when {
+                node.isMain -> null
+                node.isLocked -> button("Workforest.Unlock", AllIcons.Ide.Readwrite, "Unlock Worktree")
+                else -> button("Workforest.Delete", AllIcons.Actions.GC, "Delete Worktree")
+            },
         )
         is ScriptInfo -> listOfNotNull(
             button("Workforest.RunScript", AllIcons.Actions.Execute, "Run Script"),
@@ -174,7 +182,9 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
                 if (buttonAt(event.point) != null) return false
                 return when (val selected = selectedObject()) {
                     is Worktree -> {
-                        Projects.open(selected.path, project)
+                        // The menus hide Open on a stale row; a double-click has no menu.
+                        val refusal = Protocol.refusal(selected, needsDirectory = true, unlockedOnly = false)
+                        if (refusal == null) Projects.open(selected.path, project) else WorkforestNotifications.warning(project, refusal)
                         true
                     }
                     is ScriptInfo -> perform("Workforest.RunScript", selected, event)
@@ -295,7 +305,18 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
             if (node.isMain) append(" — main checkout")
             if (node.path == here) append(" (this window)")
             append("<br>branch: <code>").append(node.branch ?: "(detached)").append("</code>")
-            append("<br>state: ").append(if (node.dirty) "uncommitted changes" else "clean")
+            append("<br>state: ")
+            val stale = node.prunable
+            if (stale != null) {
+                append("stale — ").append(StringUtil.escapeXmlEntities(Protocol.oneLine(stale)))
+            } else {
+                append(if (node.dirty) "uncommitted changes" else "clean")
+            }
+            node.locked?.let { reason ->
+                // The reason is whatever somebody typed: never markup.
+                val text = StringUtil.escapeXmlEntities(Protocol.oneLine(reason))
+                append("<br>locked").append(if (text.isEmpty()) "" else ": $text")
+            }
             append("<br>path: <code>").append(node.path).append("</code></html>")
         }
         is ScriptInfo -> buildString {
@@ -315,7 +336,9 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
         val collapsed = Section.entries.filter { section -> sectionPath(section)?.let { !tree.isExpanded(it) } == true }
         val selected = selectedObject()
         root.removeAllChildren()
-        if (view.error == null) {
+        // A failed refresh keeps the last listing (see ForestView): only an
+        // error with nothing to show beside it empties the tree.
+        if (view.error == null || view.worktrees.isNotEmpty()) {
             root.add(sectionNode(Section.SCRIPTS, view.scripts))
             root.add(sectionNode(Section.WORKTREES, view.worktrees))
         }
@@ -417,6 +440,7 @@ class WorktreePanel(private val project: Project) : SimpleToolWindowPanel(true, 
             val branch = worktree.branch ?: "(detached)"
             append("  ${if (worktree.isMain) "main checkout · $branch" else branch}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             if (worktree.dirty) append(" ●", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.ORANGE))
+            if (worktree.stateNote.isNotEmpty()) append(" ${worktree.stateNote}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             if (current) append("  (this window)", SimpleTextAttributes.GRAYED_ATTRIBUTES)
         }
     }

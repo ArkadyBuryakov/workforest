@@ -8,12 +8,14 @@ import java.nio.file.Path
 class ProtocolTest {
     private val forestJson = """
         {
-          "main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": {}},
+          "main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false,
+                   "locked": null, "prunable": null, "running": {}},
           "worktrees_dir": "/dev/worktrees/api",
           "worktrees": [
             {"name": "feat", "branch": "feature/feat", "path": "/dev/worktrees/api/feat", "dirty": true,
-             "running": {"dev": 2, "test": 1}},
-            {"name": "fix", "branch": null, "path": "/dev/worktrees/api/fix", "dirty": false, "running": {"dev": 1}}
+             "locked": null, "prunable": null, "running": {"dev": 2, "test": 1}},
+            {"name": "fix", "branch": null, "path": "/dev/worktrees/api/fix", "dirty": false,
+             "locked": null, "prunable": null, "running": {"dev": 1}}
           ]
         }
     """.trimIndent()
@@ -35,9 +37,101 @@ class ProtocolTest {
         )
     }
 
+    private fun row(locked: String? = null, prunable: String? = null, dirty: Boolean = false, main: Boolean = false) =
+        Worktree("feat", "feat", Path.of("/dev/worktrees/api/feat"), dirty, main, locked = locked, prunable = prunable)
+
+    @Test
+    fun parsesLockedAndStaleWorktrees() {
+        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false,
+                      "locked": null, "prunable": null, "running": {}},
+            "worktrees_dir": "/dev/worktrees/api", "worktrees": [
+            {"name": "held", "branch": "held", "path": "/w/held", "dirty": true, "locked": "", "prunable": null, "running": {}},
+            {"name": "usb", "branch": "usb", "path": "/w/usb", "dirty": null, "locked": "on the\nusb drive",
+             "prunable": "gitdir file points to non-existent location", "running": {}}]}"""
+        val (held, usb) = Protocol.parseForest(json).worktrees
+        // locked without a reason is still locked
+        assertEquals(listOf("", null, true, true, false), listOf(held.locked, held.prunable, held.dirty, held.isLocked, held.isStale))
+        // a stale worktree is never asked for its changes
+        assertEquals(false, usb.dirty)
+        assertEquals("on the\nusb drive", usb.locked)
+        assertEquals(true, usb.isStale)
+    }
+
+    @Test
+    fun stateNoteNamesTheStates() {
+        assertEquals("", row().stateNote)
+        assertEquals("locked", row(locked = "").stateNote)
+        assertEquals("stale", row(prunable = "gone").stateNote)
+        assertEquals("stale locked", row(locked = "why", prunable = "gone").stateNote)
+    }
+
+    @Test
+    fun refusalFollowsTheMenuRules() {
+        // (locked, stale) × what the action needs
+        val live = row()
+        val locked = row(locked = "on the\nusb\tdrive")
+        val stale = row(prunable = "gone")
+        val both = row(locked = "", prunable = "gone")
+        // open, terminal, scripts: only a directory matters; a lock never blocks them
+        assertEquals(null, Protocol.refusal(live, needsDirectory = true, unlockedOnly = false))
+        assertEquals(null, Protocol.refusal(locked, needsDirectory = true, unlockedOnly = false))
+        assertEquals(
+            "Worktree 'feat' is stale: its directory is gone. Delete it, or prune the stale worktrees",
+            Protocol.refusal(stale, needsDirectory = true, unlockedOnly = false),
+        )
+        assertEquals(
+            "Worktree 'feat' is stale and locked: unlock it, then prune the stale worktrees",
+            Protocol.refusal(both, needsDirectory = true, unlockedOnly = false),
+        )
+        // delete: a stale one goes, a locked one does not
+        assertEquals(null, Protocol.refusal(live, needsDirectory = false, unlockedOnly = true))
+        assertEquals(null, Protocol.refusal(stale, needsDirectory = false, unlockedOnly = true))
+        assertEquals(
+            "Worktree 'feat' is locked (on the usb drive): unlock it first",
+            Protocol.refusal(locked, needsDirectory = false, unlockedOnly = true),
+        )
+        assertEquals("Worktree 'feat' is locked: unlock it first", Protocol.refusal(both, needsDirectory = false, unlockedOnly = true))
+        // checkout: both
+        assertEquals(null, Protocol.refusal(live, needsDirectory = true, unlockedOnly = true))
+        for (row in listOf(locked, stale, both)) {
+            assertEquals(true, Protocol.refusal(row, needsDirectory = true, unlockedOnly = true) != null)
+        }
+        // copy path: always
+        for (row in listOf(live, locked, stale, both)) {
+            assertEquals(null, Protocol.refusal(row, needsDirectory = false, unlockedOnly = false))
+        }
+    }
+
+    @Test
+    fun readsWhatPruneReports() {
+        val plan = "would prune 2 stale worktree records: a, b\n1 stale worktree record is locked: z — unlock to prune\n"
+        assertEquals(true, Protocol.wouldPrune(plan))
+        assertEquals(false, Protocol.wouldPrune("no stale worktree records\n"))
+        assertEquals(false, Protocol.wouldPrune("1 stale worktree record is locked: z — unlock to prune\n"))
+        assertEquals(
+            "would prune 2 stale worktree records: a, b\n1 stale worktree record is locked: z — unlock to prune",
+            Protocol.said(plan),
+        )
+        assertEquals("", Protocol.said("\n"))
+        assertEquals("a b c", Protocol.oneLine("  a\n\tb   c\n"))
+    }
+
+    @Test
+    fun failedListingKeepsTheLastGoodForest() {
+        val shown = ForestView(listOf(row(main = true), row(prunable = "gone")), emptyList(), null)
+        val error = WorkforestException("boom", 1)
+        val kept = WorktreeService.failed(shown, error)
+        assertEquals(shown.worktrees, kept.worktrees)
+        assertEquals(error, kept.error)
+        // nothing listed yet, or no CLI at all: the error is all there is
+        assertEquals(emptyList<Worktree>(), WorktreeService.failed(ForestView.EMPTY, error).worktrees)
+        assertEquals(emptyList<Worktree>(), WorktreeService.failed(shown, WorkforestNotFoundException()).worktrees)
+    }
+
     @Test
     fun emptyForestHasNoWorktrees() {
-        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false, "running": {}},
+        val json = """{"main": {"name": "api", "branch": "main", "path": "/dev/api", "dirty": false,
+            "locked": null, "prunable": null, "running": {}},
             "worktrees_dir": "/dev/worktrees/api", "worktrees": []}"""
         assertEquals(emptyList<Worktree>(), Protocol.parseForest(json).worktrees)
     }
@@ -46,7 +140,9 @@ class ProtocolTest {
     fun rejectsUnexpectedOutput() {
         val noRunning = """{"main": {"name": "api", "branch": null, "path": "/dev/api", "dirty": false},
             "worktrees_dir": "/dev", "worktrees": []}""" // an older CLI
-        for (bad in listOf("", "not json", "[]", """{"worktrees": []}""", """{"main": {"name": "x"}}""", noRunning)) {
+        val noLock = """{"main": {"name": "api", "branch": null, "path": "/dev/api", "dirty": false, "running": {}},
+            "worktrees_dir": "/dev", "worktrees": []}""" // one before `locked` and `prunable`
+        for (bad in listOf("", "not json", "[]", """{"worktrees": []}""", """{"main": {"name": "x"}}""", noRunning, noLock)) {
             val error = assertThrows(WorkforestException::class.java) { Protocol.parseForest(bad) }
             assertEquals(true, error.message!!.startsWith("unexpected `list --json` output"))
         }
@@ -120,6 +216,7 @@ class ProtocolTest {
     fun bookkeepingPaths() {
         assertEquals(true, WorktreeService.isBookkeeping("/r/.git/worktrees/feat"))
         assertEquals(true, WorktreeService.isBookkeeping("/r/.git/worktrees/feat/HEAD"))
+        assertEquals(true, WorktreeService.isBookkeeping("/r/.git/worktrees/feat/locked"))
         assertEquals(false, WorktreeService.isBookkeeping("/r/.git/worktrees/feat/index"))
         assertEquals(true, WorktreeService.isBookkeeping("/r/.git/HEAD"))
         assertEquals(true, WorktreeService.isBookkeeping("/r/.idea/.workforest.yaml"))

@@ -25,7 +25,12 @@ import java.util.concurrent.TimeUnit
 
 /** What the tool window and status bar show: the forest and the scripts, or why not. */
 data class ForestView(
-    /** Main checkout first, then by recency; empty on [error]. */
+    /**
+     * Main checkout first, then by recency. With an [error] this is the
+     * last listing that worked, when there was one: a failed refresh says
+     * nothing about the forest, and blanking the tree would hide the very
+     * row that needs attention.
+     */
     val worktrees: List<Worktree>,
     val scripts: List<ScriptInfo>,
     val error: Throwable?,
@@ -101,7 +106,7 @@ class WorktreeService(private val project: Project) : Disposable {
                 loaded = try {
                     ForestView(order(WorkforestCli.forest(root)), WorkforestCli.scripts(root), null)
                 } catch (e: WorkforestException) {
-                    ForestView(emptyList(), emptyList(), e)
+                    failed(this@WorktreeService.view, e)
                 }
             }
 
@@ -157,7 +162,7 @@ class WorktreeService(private val project: Project) : Disposable {
         val loaded = try {
             ForestView(order(WorkforestCli.forest(root)), shown.scripts, null)
         } catch (e: WorkforestException) {
-            ForestView(emptyList(), emptyList(), e)
+            failed(shown, e)
         }
         if (loaded.worktrees == shown.worktrees && loaded.error?.message == shown.error?.message) return
         ApplicationManager.getApplication().invokeLater({ publish(loaded) }, ModalityState.any(), project.disposed)
@@ -166,8 +171,8 @@ class WorktreeService(private val project: Project) : Disposable {
     /**
      * Have the VFS watch the main checkout's `.git`, which lies outside this
      * project when it is a worktree: `.git/worktrees/NAME` comes and goes
-     * with the worktree, its HEAD moves with the branch, `.git/HEAD` with
-     * `wf checkout`.
+     * with the worktree, its HEAD moves with the branch and its `locked`
+     * file with `wf lock`/`wf unlock`, `.git/HEAD` with `wf checkout`.
      */
     private fun watch(main: Path) {
         if (watchedMain == main) return
@@ -188,6 +193,18 @@ class WorktreeService(private val project: Project) : Disposable {
         fun getInstance(project: Project): WorktreeService = project.service()
 
         /**
+         * The view after a listing failed: what was [shown] stays, with the
+         * error beside it — unless there is no CLI to ask at all, or nothing
+         * was ever listed, where the error is all there is to show.
+         */
+        fun failed(shown: ForestView, error: WorkforestException): ForestView =
+            if (error is WorkforestNotFoundException || shown.worktrees.isEmpty()) {
+                ForestView(emptyList(), emptyList(), error)
+            } else {
+                shown.copy(error = error)
+            }
+
+        /**
          * Worktree bookkeeping (not `index`, rewritten by every `git status` —
          * our own listing included), the running-script records, and the
          * config files.
@@ -200,7 +217,7 @@ class WorktreeService(private val project: Project) : Disposable {
             val rest = path.substringAfter("/.git/worktrees/", "")
             if (rest.isEmpty()) return false
             val parts = rest.split('/')
-            return parts.size == 1 || (parts.size == 2 && parts[1] == "HEAD")
+            return parts.size == 1 || (parts.size == 2 && (parts[1] == "HEAD" || parts[1] == "locked"))
         }
     }
 }

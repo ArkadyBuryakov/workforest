@@ -14,12 +14,19 @@ import {
   Forest,
   ScriptInfo,
   WorktreeInfo,
+  failureMessage,
+  isLocked,
+  isStale,
+  oneLine,
   parseCandidates,
   parseMakeScripts,
   parseScripts,
+  said,
   scriptDescription,
   shellQuote,
+  stateNote,
   worktreeNameFor,
+  wouldPrune,
 } from './forest';
 import { ForestModel } from './model';
 import { EntryNode, ForestNode, Node, SCRIPT_ICONS, ScriptNode } from './tree';
@@ -70,7 +77,7 @@ function entryItem(forest: Forest, info: WorktreeInfo, isMain: boolean, deps: De
   const isCurrent = deps.model.isOpenHere(info.path);
   return {
     label: `$(${isMain ? 'repo' : 'git-branch'}) ${info.name}`,
-    description: [isMain ? `main checkout · ${branch}` : branch, info.dirty ? '●' : '', isCurrent ? '(this window)' : '']
+    description: [isMain ? `main checkout · ${branch}` : branch, stateNote(info), isCurrent ? '(this window)' : '']
       .filter((part) => part.length > 0)
       .join(' '),
     detail: info.path,
@@ -78,21 +85,40 @@ function entryItem(forest: Forest, info: WorktreeInfo, isMain: boolean, deps: De
   };
 }
 
+/** Which rows a command can act on — the same rules the tree's menus
+ * follow, for the pickers, which have no menus to hide things in. */
+type Eligible = (info: WorktreeInfo) => boolean;
+
+const alive: Eligible = (info) => !isStale(info);
+const unlocked: Eligible = (info) => !isLocked(info);
+
+interface PickOptions {
+  placeHolder: string;
+  includeMain: boolean;
+  /** Rows left out of the picker; every row when absent. */
+  eligible?: Eligible;
+  /** What to say when no row is eligible. */
+  none?: string;
+}
+
 async function pickEntries(
   deps: Deps,
-  options: { placeHolder: string; includeMain: boolean; many: boolean; forest?: Forest },
+  options: PickOptions & { many: boolean; forest?: Forest },
 ): Promise<EntryNode[] | undefined> {
   const forest = options.forest ?? (await pickForest(deps));
   if (!forest) {
     return undefined;
   }
+  const eligible = options.eligible ?? (() => true);
   const items: EntryItem[] = [];
   if (options.includeMain) {
     items.push(entryItem(forest, forest.main, true, deps));
   }
-  items.push(...forest.worktrees.map((info) => entryItem(forest, info, false, deps)));
+  items.push(...forest.worktrees.filter(eligible).map((info) => entryItem(forest, info, false, deps)));
   if (items.length === 0) {
-    void vscode.window.showInformationMessage('Workforest: no worktrees yet — create one first.');
+    const none =
+      forest.worktrees.length === 0 ? 'no worktrees yet — create one first.' : (options.none ?? 'no worktree to pick.');
+    void vscode.window.showInformationMessage(`Workforest: ${none}`);
     return undefined;
   }
   if (options.many) {
@@ -133,12 +159,40 @@ function onBranch(info: WorktreeInfo): string {
   return info.branch === null ? 'a detached HEAD' : `branch ${info.branch}`;
 }
 
+/** What stands in the way of acting on a row, in the CLI's own words. */
+function lockedMessage(info: WorktreeInfo): string {
+  const reason = oneLine(info.locked ?? '');
+  return `worktree ${info.name} is locked${reason.length > 0 ? ` (${reason})` : ''} — unlock it first.`;
+}
+
+function staleMessage(info: WorktreeInfo): string {
+  return isLocked(info)
+    ? `worktree ${info.name} is stale and locked — unlock it, then prune the stale worktrees.`
+    : `worktree ${info.name} is stale: its directory is gone — prune the stale worktrees.`;
+}
+
+/**
+ * The menus hide what a row cannot do, but a command also arrives from a
+ * keybinding, the palette, or the header acting on this window's own
+ * worktree: say why not instead of running into the CLI's refusal after a
+ * confirmation or two.
+ */
+function refuse(entries: readonly EntryNode[], options: { stale: boolean; locked: boolean }): boolean {
+  for (const { info } of entries) {
+    if (options.stale && isStale(info)) {
+      void vscode.window.showWarningMessage(`Workforest: ${staleMessage(info)}`);
+      return true;
+    }
+    if (options.locked && isLocked(info)) {
+      void vscode.window.showWarningMessage(`Workforest: ${lockedMessage(info)}`);
+      return true;
+    }
+  }
+  return false;
+}
+
 /** The entry a command was invoked on (tree item), else a picker. */
-async function entryFrom(
-  deps: Deps,
-  node: Node | undefined,
-  options: { placeHolder: string; includeMain: boolean },
-): Promise<EntryNode | undefined> {
+async function entryFrom(deps: Deps, node: Node | undefined, options: PickOptions): Promise<EntryNode | undefined> {
   if (node instanceof EntryNode && (options.includeMain || !node.isMain)) {
     return node;
   }
@@ -277,8 +331,8 @@ export async function create(deps: Deps, node?: Node): Promise<void> {
 
 async function openEntry(deps: Deps, node: Node | undefined, mode: OpenMode): Promise<void> {
   await guarded(deps, async () => {
-    const entry = await entryFrom(deps, node, { placeHolder: 'Worktree to open', includeMain: true });
-    if (entry) {
+    const entry = await entryFrom(deps, node, { placeHolder: 'Worktree to open', includeMain: true, eligible: alive });
+    if (entry && !refuse([entry], { stale: true, locked: false })) {
       await openFolder(deps, entry.info.path, mode);
     }
   });
@@ -291,8 +345,12 @@ export const openInCurrentWindow = (deps: Deps, node?: Node): Promise<void> =>
 
 export async function openTerminal(deps: Deps, node?: Node): Promise<void> {
   await guarded(deps, async () => {
-    const entry = await entryFrom(deps, node, { placeHolder: 'Worktree to open a terminal in', includeMain: true });
-    if (entry) {
+    const entry = await entryFrom(deps, node, {
+      placeHolder: 'Worktree to open a terminal in',
+      includeMain: true,
+      eligible: alive,
+    });
+    if (entry && !refuse([entry], { stale: true, locked: false })) {
       const terminal = vscode.window.createTerminal({ name: entry.info.name, cwd: entry.info.path });
       terminal.show();
     }
@@ -361,6 +419,8 @@ export async function remove(deps: Deps, node?: Node): Promise<void> {
       entries = await pickEntries(deps, {
         placeHolder: 'Worktrees to delete',
         includeMain: false,
+        eligible: unlocked,
+        none: 'every worktree is locked — unlock one to delete it.',
         many: true,
         ...(node instanceof ForestNode ? { forest: node.forest } : {}),
       });
@@ -369,7 +429,8 @@ export async function remove(deps: Deps, node?: Node): Promise<void> {
       return;
     }
     const confirmed = await confirmDirty(deps, entries, 'Delete');
-    if (!confirmed || confirmed.length === 0) {
+    // A stale one is deletable — that prunes its record; a locked one is not.
+    if (!confirmed || confirmed.length === 0 || refuse(confirmed, { stale: false, locked: true })) {
       return;
     }
     const branches = confirmed.map((entry) => entry.info.branch).filter((b): b is string => b !== null);
@@ -399,6 +460,9 @@ export async function remove(deps: Deps, node?: Node): Promise<void> {
 export async function checkout(deps: Deps, node?: Node): Promise<void> {
   await guarded(deps, async () => {
     const current = node === undefined ? currentWorktree(deps) : undefined;
+    if (current && refuse([current], { stale: true, locked: true })) {
+      return;
+    }
     if (current) {
       const question = `Check out ${current.info.branch ?? current.info.name} in the main checkout?`;
       const detail = `Deletes ${current.info.name}, this window's worktree.`;
@@ -411,13 +475,15 @@ export async function checkout(deps: Deps, node?: Node): Promise<void> {
       (await entryFrom(deps, node, {
         placeHolder: 'Worktree to check out in the main checkout',
         includeMain: false,
+        eligible: (info) => alive(info) && unlocked(info),
+        none: 'every worktree is locked or stale.',
       }));
     if (!entry) {
       return;
     }
     const confirmed = await confirmDirty(deps, [entry], 'Check out');
     const target = confirmed?.[0];
-    if (!target) {
+    if (!target || refuse([target], { stale: true, locked: true })) {
       return;
     }
     await deps.cli.expect(['checkout', target.info.name, '--force'], target.forest.main.path, 'checkout');
@@ -432,6 +498,90 @@ export async function checkout(deps: Deps, node?: Node): Promise<void> {
         await openFolder(deps, target.forest.main.path, openMode());
       }
     }
+  });
+}
+
+// --- lock / unlock / prune -------------------------------------------------
+
+export async function lock(deps: Deps, node?: Node): Promise<void> {
+  await guarded(deps, async () => {
+    const entry = await entryFrom(deps, node, {
+      placeHolder: 'Worktree to lock',
+      includeMain: false,
+      eligible: unlocked,
+      none: 'every worktree is locked already.',
+    });
+    if (!entry) {
+      return;
+    }
+    const reason = await vscode.window.showInputBox({
+      title: `Lock worktree ${entry.info.name}`,
+      prompt: 'Delete, Checkout and Prune refuse a locked worktree until it is unlocked.',
+      placeHolder: 'Why (optional)',
+    });
+    if (reason === undefined) {
+      return; // Esc; an empty answer locks without a reason
+    }
+    const args = ['lock', entry.info.name];
+    if (reason.trim().length > 0) {
+      args.push('--reason', reason.trim());
+    }
+    await deps.cli.expect(args, entry.forest.main.path, 'lock');
+    await deps.model.refresh();
+  });
+}
+
+export async function unlock(deps: Deps, node?: Node): Promise<void> {
+  await guarded(deps, async () => {
+    const entry = await entryFrom(deps, node, {
+      placeHolder: 'Worktree to unlock',
+      includeMain: false,
+      eligible: isLocked,
+      none: 'no worktree is locked.',
+    });
+    if (!entry) {
+      return;
+    }
+    await deps.cli.expect(['unlock', entry.info.name], entry.forest.main.path, 'unlock');
+    await deps.model.refresh();
+  });
+}
+
+export async function prune(deps: Deps, node?: Node): Promise<void> {
+  await guarded(deps, async () => {
+    const forest = node instanceof ForestNode ? node.forest : node instanceof EntryNode ? node.forest : await pickForest(deps);
+    if (!forest) {
+      return;
+    }
+    // The CLI's own dry run decides what would go: pruning is repository-wide
+    // and reaches records this view does not show.
+    const preview = await deps.cli.run(['prune', '--dry-run'], forest.main.path);
+    if (preview.code !== 0) {
+      throw new CliError(failureMessage(preview.stderr, 'prune failed'), preview.code, preview.stderr);
+    }
+    const plan = said(preview.stderr);
+    if (!wouldPrune(preview.stderr)) {
+      void vscode.window.showInformationMessage(`Workforest: ${plan || 'no stale worktree records'}.`);
+      await deps.model.refresh();
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      'Prune the stale worktree records?',
+      {
+        modal: true,
+        detail: `${plan}\n\nOnly git's records go, never files. A worktree on a drive that is not mounted looks exactly like a deleted one — lock those instead.`,
+      },
+      'Prune',
+    );
+    if (!choice) {
+      return;
+    }
+    const result = await deps.cli.run(['prune'], forest.main.path);
+    if (result.code !== 0) {
+      throw new CliError(failureMessage(result.stderr, 'prune failed'), result.code, result.stderr);
+    }
+    await deps.model.refresh();
+    void vscode.window.showInformationMessage(`Workforest: ${said(result.stderr)}`);
   });
 }
 
@@ -491,7 +641,7 @@ async function scriptTarget(deps: Deps, node: Node | undefined, placeHolder: str
   if (primary && !(node instanceof ForestNode)) {
     return new EntryNode(primary.forest, primary.info, primary.isMain, true);
   }
-  return entryFrom(deps, node, { placeHolder, includeMain: true });
+  return entryFrom(deps, node, { placeHolder, includeMain: true, eligible: alive });
 }
 
 /** The script a command was invoked on (Scripts view item), else a picker. */
@@ -505,7 +655,7 @@ async function scriptFrom(deps: Deps, node: Node | undefined, target: EntryNode,
 export async function runScript(deps: Deps, node?: Node): Promise<void> {
   await guarded(deps, async () => {
     const target = await scriptTarget(deps, node, 'Worktree to run the script in');
-    if (!target) {
+    if (!target || refuse([target], { stale: true, locked: false })) {
       return;
     }
     const script = await scriptFrom(deps, node, target, 'run');
@@ -523,7 +673,7 @@ export async function runScript(deps: Deps, node?: Node): Promise<void> {
 export async function stopScript(deps: Deps, node?: Node): Promise<void> {
   await guarded(deps, async () => {
     const target = await scriptTarget(deps, node, 'Worktree whose script to stop');
-    if (!target) {
+    if (!target || refuse([target], { stale: true, locked: false })) {
       return;
     }
     const script = await scriptFrom(deps, node, target, 'stop');

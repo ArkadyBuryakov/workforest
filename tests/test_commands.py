@@ -231,8 +231,8 @@ class TestList:
         repo.make_dirty(worktree=ctx.worktrees_dir / "two")
         out = commands.cmd_list(ctx, porcelain=True)
         assert out == (
-            f"one\tfeature/one\t{ctx.worktrees_dir / 'one'}\t0\n"
-            f"two\ttwo\t{ctx.worktrees_dir / 'two'}\t1"
+            f"one\tfeature/one\t{ctx.worktrees_dir / 'one'}\t0\t\t\n"
+            f"two\ttwo\t{ctx.worktrees_dir / 'two'}\t1\t\t"
         )
 
     def test_human_listing(self, repo: Repo) -> None:
@@ -260,6 +260,8 @@ class TestList:
             "branch": "main",
             "path": str(repo.path),
             "dirty": True,
+            "locked": None,
+            "prunable": None,
             "running": {},
         }
         assert data["worktrees_dir"] == str(ctx.worktrees_dir)
@@ -269,6 +271,8 @@ class TestList:
                 "branch": "feature/one",
                 "path": str(ctx.worktrees_dir / "one"),
                 "dirty": False,
+                "locked": None,
+                "prunable": None,
                 "running": {},
             }
         ]

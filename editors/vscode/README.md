@@ -41,8 +41,8 @@ a fresh one, and what `wf run NAME` does — all of it from the same
 
 **The Workforest sidebar** (the tree icon in the Activity Bar) has the
 same toolbar as the JetBrains plugin in its header — Create, Open, Run
-Script, Checkout, Delete, Refresh, and under `…` Stop Script, Show Merged
-Configuration, the two Init commands, and Settings — each asking what to
+Script, Checkout, Delete, Refresh, and under `…` Stop Script, Prune Stale
+Worktrees, Show Merged Configuration, the two Init commands, and Settings — each asking what to
 act on, except Checkout and Delete, which act on the worktree this window
 is in (after confirming it) and only ask from the main checkout. Below
 it, two collapsible sections:
@@ -61,9 +61,14 @@ it, two collapsible sections:
 - **Worktrees**: the main checkout first, then every managed worktree,
   most recently opened first (worktrees this VS Code has never opened
   sort by creation time), each with its branch, a `●` when it has
-  uncommitted changes, and which one this window is in. Inline buttons
+  uncommitted changes, `locked` and `stale` when it is, and which one
+  this window is in; the tooltip has the lock reason. Inline buttons
   on a row open that worktree in a new window, open a terminal there, or
-  delete it; the context menu has the rest. With a multi-root workspace
+  delete it; the context menu has the rest. A locked worktree has Unlock
+  where Delete was, and no Checkout. A stale one — its directory is gone
+  — offers only Delete (which drops its record), or Unlock when it is
+  also locked, and Copy Path; Prune Stale Worktrees…, in the section's
+  context menu and under `…`, clears them all. With a multi-root workspace
   spanning several repositories, each forest is a node of its own.
 
 **Commands** (all under `Workforest:` in the Command Palette):
@@ -74,6 +79,9 @@ it, two collapsible sections:
 | Open Worktree… | opens the main checkout or a worktree in a new window, this window, or asks — see `workforest.openIn`. |
 | Delete Worktree… | `workforest delete NAME... --force` after its own confirmation for uncommitted changes, and asks whether to delete the branch. Invoked from the header or the palette it targets the worktree this window is in; from the tree, the row it was invoked on. Deleting the worktree this window shows moves the window to the main checkout. |
 | Checkout into Main Checkout… | `workforest checkout NAME --force`: fold a worktree back into the main checkout — this window's, unless invoked on a row. |
+| Lock Worktree… | `workforest lock NAME [--reason TEXT]`, asking for the optional reason. A locked worktree cannot be deleted, checked out, or pruned. |
+| Unlock Worktree | `workforest unlock NAME`. |
+| Prune Stale Worktrees… | `workforest prune`, after showing what `workforest prune --dry-run` would remove. On the Worktrees section, a forest, and the header's `…` menu — never on a row. |
 | Run Script… | `workforest run NAME` — or `workforest make TARGET` for a makefile target — in a new integrated terminal in the chosen worktree (this window's by default; from a worktree's context menu, that worktree), so Ctrl-C, colors, and background scripts behave exactly as in your shell. |
 | Stop Script… | `workforest stop NAME` (`workforest stop --make TARGET` for a makefile target) in the chosen worktree. |
 | Open in Integrated Terminal | a terminal in the worktree's directory. |
