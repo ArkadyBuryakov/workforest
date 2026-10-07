@@ -36,3 +36,6 @@ editors/idea/bin/
 # Tooling config
 /.workforest.yaml
 /Makefile.local
+
+# Rust
+/target/
