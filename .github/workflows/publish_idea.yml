@@ -7,8 +7,8 @@ name: Publish to the JetBrains Marketplace
 # `-f targets=idea` there republishes just this one.
 #
 # The plugin has no version of its own: gradle.properties carries a
-# placeholder and the build is passed the CLI's __version__, so what the
-# Marketplace serves is always the release frozen inside it. A version
+# placeholder and the build is passed the CLI's version, so what the
+# Marketplace serves is always the release built into it. A version
 # already up is skipped, which makes a re-run of an old release a no-op.
 #
 # Needs the JB_PUBLISH_TOKEN secret (a Marketplace permanent token,
@@ -68,8 +68,7 @@ jobs:
 
       - name: Compile, test, package as the version of the CLI it ships
         run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
-          [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
+          version=$("$GITHUB_WORKSPACE/packaging/version")
           echo "PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
           "$GITHUB_WORKSPACE/packaging/changelog/generate"
           ./gradlew --no-daemon -PpluginVersion="$version" build buildPlugin
