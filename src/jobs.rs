@@ -726,7 +726,7 @@ mod tests {
         });
 
         assert_eq!(reaper.join().unwrap(), Some(Signal::SIGTERM as i32));
-        assert_eq!(*cleaned.borrow(), [job.record.clone()]);
+        assert_eq!(*cleaned.borrow(), std::slice::from_ref(&job.record));
         assert!(!job.path.exists());
         assert!(shown.contains("stopping orphaned 'dev' in 'feat'"), "{shown}");
     }

@@ -96,23 +96,7 @@ fn entries<T: Clone>(pairs: &[(&str, T)]) -> IndexMap<String, T> {
 fn data(config: &Config, key: &str) -> String {
     let value = config.as_value();
     let found = value.as_string_map().unwrap().swap_remove(key).unwrap();
-    crate::util::json_compact(&to_json(&found))
-}
-
-fn to_json(value: &Value) -> serde_json::Value {
-    match value {
-        Value::Map(pairs) => serde_json::Value::Object(
-            pairs
-                .iter()
-                .map(|(key, value)| (key.as_str().unwrap().to_string(), to_json(value)))
-                .collect(),
-        ),
-        Value::List(items) => items.iter().map(to_json).collect(),
-        Value::Str(text) => text.as_str().into(),
-        Value::Bool(flag) => (*flag).into(),
-        Value::Number(number) => number.to_json(),
-        Value::Null | Value::Timestamp { .. } => serde_json::Value::Null,
-    }
+    crate::util::json_compact(&found.to_json())
 }
 
 // --- defaults ---------------------------------------------------------------

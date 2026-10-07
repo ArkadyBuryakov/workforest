@@ -2,10 +2,14 @@
 //! builtin exactly (`repr`, `shlex.quote`, `str.splitlines`,
 //! `json.dumps`): messages and machine output are part of the interface.
 
+use std::collections::BTreeMap;
 use std::env;
+use std::ffi::{OsStr, OsString};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use serde_json::ser::{CompactFormatter, Formatter, PrettyFormatter};
@@ -115,6 +119,52 @@ pub fn format_seconds(value: f64) -> String {
 /// The last path component, or "" for a root.
 pub fn file_name(path: &Path) -> String {
     path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// A process environment as data: what a child gets, and what decisions
+/// that depend on the environment (`$SHELL`, `$EDITOR`) are made from.
+pub type Env = BTreeMap<OsString, OsString>;
+
+pub fn current_env() -> Env {
+    env::vars_os().collect()
+}
+
+/// A variable of `env` that is set and not empty.
+pub fn env_get(env: &Env, name: &str) -> Option<String> {
+    env.get(OsStr::new(name))
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string_lossy().into_owned())
+}
+
+/// The shell config snippets run through: `$SHELL`, else `sh`.
+pub fn user_shell(env: &Env) -> String {
+    env_get(env, "SHELL").unwrap_or_else(|| "sh".to_string())
+}
+
+/// A file with no name: open for reading and writing, gone when closed.
+pub fn anonymous_file() -> io::Result<File> {
+    let nanos =
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.subsec_nanos());
+    for attempt in 0..100u32 {
+        let name = format!("workforest-{}-{nanos}-{attempt}", std::process::id());
+        let path = env::temp_dir().join(name);
+        match OpenOptions::new().read(true).write(true).create_new(true).open(&path) {
+            Ok(file) => {
+                fs::remove_file(&path)?;
+                return Ok(file);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::other("cannot create a temporary file"))
+}
+
+/// The name of signal number `signum` (`SIGTERM`), or `signal N` for one
+/// that has none.
+pub fn signal_name(signum: i32) -> String {
+    nix::sys::signal::Signal::try_from(signum)
+        .map_or_else(|_| format!("signal {signum}"), |signal| signal.as_str().to_string())
 }
 
 /// An environment variable that is set and not empty.
@@ -392,6 +442,35 @@ mod tests {
             json_pretty(&json!({"a": {"b": [1, "x\n"]}, "c": {}})),
             "{\n  \"a\": {\n    \"b\": [\n      1,\n      \"x\\n\"\n    ]\n  },\n  \"c\": {}\n}"
         );
+    }
+
+    #[test]
+    fn environments_are_data() {
+        let mut env = Env::new();
+        assert_eq!(user_shell(&env), "sh");
+        env.insert("SHELL".into(), "".into());
+        assert_eq!((env_get(&env, "SHELL"), user_shell(&env)), (None, "sh".to_string()));
+        env.insert("SHELL".into(), "/bin/zsh".into());
+        assert_eq!(user_shell(&env), "/bin/zsh");
+        assert!(current_env().contains_key(OsStr::new("PATH")));
+    }
+
+    #[test]
+    fn an_anonymous_file_reads_back_what_was_written() {
+        use std::io::{Read, Seek, Write};
+        let mut file = anonymous_file().unwrap();
+        file.write_all(b"hello").unwrap();
+        file.rewind().unwrap();
+        let mut text = String::new();
+        file.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn signal_names() {
+        assert_eq!(signal_name(15), "SIGTERM");
+        assert_eq!(signal_name(2), "SIGINT");
+        assert_eq!(signal_name(999), "signal 999");
     }
 
     #[test]

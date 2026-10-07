@@ -51,24 +51,6 @@ fn lookup<'a>(mut value: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     Some(value)
 }
 
-fn value_to_json(value: &Value) -> serde_json::Value {
-    match value {
-        Value::Null | Value::Timestamp { .. } => serde_json::Value::Null,
-        Value::Bool(flag) => (*flag).into(),
-        Value::Number(number) => number.to_json(),
-        Value::Str(text) => text.as_str().into(),
-        Value::List(items) => items.iter().map(value_to_json).collect(),
-        Value::Map(pairs) => serde_json::Value::Object(
-            pairs
-                .iter()
-                .map(|(key, value)| {
-                    (key.as_str().map_or_else(|| key.repr(), str::to_string), value_to_json(value))
-                })
-                .collect(),
-        ),
-    }
-}
-
 impl ConfigFile {
     /// The file as it is on disk; one that does not exist yet starts empty.
     pub fn open(path: &Path) -> Result<Self> {
@@ -155,7 +137,7 @@ impl ConfigFile {
             return Ok(false);
         }
         let text = if is_json(&self.path) {
-            let mut root = value_to_json(&current);
+            let mut root = current.to_json();
             let mut target = &mut root;
             for key in parents {
                 target = &mut target[*key];
@@ -177,7 +159,7 @@ impl ConfigFile {
     fn set_json(&self, keys: &[&str], value: &Value) -> Result<String> {
         let mut root = match self.parsed(&self.text)? {
             Value::Null => serde_json::Value::Object(Default::default()),
-            current => value_to_json(&current),
+            current => current.to_json(),
         };
         let mut target = &mut root;
         for key in keys {
@@ -189,7 +171,7 @@ impl ConfigFile {
                 *target = serde_json::Value::Object(Default::default());
             }
         }
-        *target = value_to_json(value);
+        *target = value.to_json();
         Ok(util::json_pretty(&root) + "\n")
     }
 

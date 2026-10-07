@@ -130,6 +130,26 @@ impl Value {
         }
     }
 
+    /// The value as JSON, mapping keys in order; what JSON has no word
+    /// for becomes null.
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            Value::Null | Value::Timestamp { .. } => serde_json::Value::Null,
+            Value::Bool(flag) => (*flag).into(),
+            Value::Number(number) => number.to_json(),
+            Value::Str(text) => text.as_str().into(),
+            Value::List(items) => items.iter().map(Value::to_json).collect(),
+            Value::Map(pairs) => serde_json::Value::Object(
+                pairs
+                    .iter()
+                    .map(|(key, value)| {
+                        (key.as_str().map_or_else(|| key.repr(), str::to_string), value.to_json())
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
     pub fn from_json(value: serde_json::Value) -> Value {
         match value {
             serde_json::Value::Null => Value::Null,
@@ -525,6 +545,16 @@ mod tests {
         assert_eq!(Value::Map(vec![(Value::Null, Value::Null)]).as_string_map(), None);
         assert_eq!(Value::Null.as_string_map(), None);
         assert_eq!(Value::Null.as_str(), None);
+    }
+
+    #[test]
+    fn json_round_trip_keeps_order_and_number_kinds() {
+        let text = r#"{"b":[1,2.5,null,true,"x"],"a":{}}"#;
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(Value::from_json(json).to_json().to_string(), text);
+        let odd =
+            Value::Map(vec![(Value::Number(Number::Int(1)), Value::Timestamp { date_only: true })]);
+        assert_eq!(odd.to_json().to_string(), r#"{"1":null}"#);
     }
 
     #[test]

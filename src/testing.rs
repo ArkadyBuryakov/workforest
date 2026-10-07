@@ -137,10 +137,46 @@ impl Repo {
     pub fn make_dirty(&self, worktree: &Path) {
         fs::write(worktree.join("dirty.txt"), "uncommitted\n").unwrap();
     }
+}
 
-    pub fn write_project_config(&self, content: &str) -> PathBuf {
-        let config = self.path.join(".workforest.yaml");
-        fs::write(&config, content).unwrap();
-        config
+/// Executable stub that logs each invocation instead of doing anything.
+pub struct Recorder {
+    pub path: PathBuf,
+    log: PathBuf,
+}
+
+impl Recorder {
+    pub fn new(directory: &Path) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let log = directory.join("recorder.log");
+        let path = directory.join("recorder");
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"argv=$* argc=$# cwd=$PWD wf_worktree=$WF_WORKTREE \
+                 virtual_env=$VIRTUAL_ENV\" >> {}\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        Self { path, log }
+    }
+
+    pub fn lines(&self) -> Vec<String> {
+        fs::read_to_string(&self.log).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
+    /// Poll for detached spawns that write the log asynchronously.
+    pub fn wait_for_lines(&self, count: usize) -> Vec<String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            let lines = self.lines();
+            if lines.len() >= count {
+                return lines;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("recorder log never reached {count} line(s): {:?}", self.lines());
     }
 }
