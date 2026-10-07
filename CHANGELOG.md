@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.8.0
+
+Locked and stale worktrees are understood everywhere, and a config with
+an unknown key no longer stops the tool.
+
+- A worktree whose directory is gone — deleted by hand, or on a drive
+  that is not mounted — no longer breaks `wf list`, `delete`, `checkout`
+  and the editor clients. `list` shows it as `stale`; `open` and
+  `checkout` refuse it and name the fix instead of failing inside git.
+- `wf prune` removes the records of stale worktrees, naming each one;
+  `-n`/`--dry-run` only names them. `wf delete NAME` on a stale worktree
+  removes its record and leaves any files still there in place.
+- `wf lock NAME [--reason TEXT]` and `wf unlock NAME`: `delete`,
+  `checkout` and `prune` refuse a locked worktree until it is unlocked.
+  `--force` still means "discard uncommitted changes" and never overrides
+  a lock; a locked worktree opens as usual.
+- `list --json` gains `locked` and `prunable`, and `dirty` is null for a
+  stale worktree. `list --porcelain` has six columns instead of four:
+  the lock and the stale reason follow `dirty`.
+- Both editor clients mark locked and stale worktrees, offer Lock, Unlock
+  and Prune, show Unlock in place of Delete on a locked worktree, and
+  leave a stale one only the actions that need no directory. A refresh
+  that fails keeps the last listing on screen.
+- An unknown key in a config file — at the top level, in the `make`
+  section, or in a script — is ignored with a warning instead of being an
+  error, so a config written for a newer release still loads. A wrong
+  value for a known key is an error as before.
+- Shell completion offers only the worktrees a command can act on for
+  `lock` and `unlock`, and prints no warnings. Re-run
+  `eval "$(workforest shell-init)"` (or restart the shell) to pick up the
+  new completions.
+
 ## 0.7.0
 
 Makefile targets are scripts without being configured.
