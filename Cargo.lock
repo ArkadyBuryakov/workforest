@@ -1011,7 +1011,6 @@ name = "workforest"
 version = "0.8.0"
 dependencies = [
  "clap",
- "crossterm",
  "indexmap",
  "nix",
  "nucleo-matcher",

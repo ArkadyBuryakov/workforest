@@ -12,7 +12,6 @@ categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4.5", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions"] }
-crossterm = "0.29"
 indexmap = "2"
 nix = { version = "0.31", features = ["fs", "process", "signal", "term", "poll", "user", "ioctl"] }
 nucleo-matcher = "0.3"
