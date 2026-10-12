@@ -4,11 +4,13 @@
 //! behind `bulk` and `pipeline`, and a bulk's per-member runners.
 //!
 //! A forked child never returns into its parent's code path: each
-//! `supervise_*`/`run_member` body ends in `exit_with`.
+//! `supervise_*`/`run_member` body ends in `exit_with`, and a command's
+//! fork execs or does the same. A job is forked held and let go only once
+//! its record is written, so it never runs unrecorded.
 
 use std::fs::OpenOptions;
-use std::io::Write;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd};
+use std::io::{Read, Write};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -188,60 +190,102 @@ fn stdin_from_devnull() {
     }
 }
 
-/// Start the job as the leader of a new process group and return its pid:
-/// `$SHELL -c` for a command, a forked supervisor for a group.
-fn spawn(job: &Job, tty_fd: Option<i32>) -> Result<i32> {
-    if job.spec.command.is_none() {
-        // SAFETY: we are single-threaded here (worker threads only exist
-        // inside `list`), so the child may run ordinary code.
-        return match unsafe { fork() } {
-            Ok(ForkResult::Child) => supervise_group(job, tty_fd),
-            Ok(ForkResult::Parent { child }) => {
-                // Both sides set the group so that it exists whichever
-                // runs first.
-                let _ = setpgid(child, child);
-                Ok(child.as_raw())
-            }
-            Err(errno) => Err(Error::new(format!("cannot fork: {}", errno.desc()))),
-        };
-    }
-    let cannot_run = |error: std::io::Error| {
-        Error::new(format!(
-            "cannot run {} via $SHELL: {}",
-            repr(&job.name),
-            util::os_error_text(&error)
-        ))
-    };
-    let mut command = Command::new(util::user_shell(&job.env));
-    command
-        .arg("-c")
-        .arg(&job.snippet)
-        .current_dir(&job.cwd)
-        .env_clear()
-        .envs(&job.env)
-        .stdout(stderr_for_child().map_err(cannot_run)?)
-        .process_group(0);
-    if let Some(fd) = tty_fd {
-        // Before exec, the command claims the terminal for its own (new)
-        // group itself: doing it only from the parent would race the
-        // command's first read.
-        // SAFETY: give_terminal is async-signal-safe.
-        unsafe {
-            command.pre_exec(move || {
-                give_terminal(fd, libc::getpgrp());
-                Ok(())
-            });
+/// Both ends of a pipe that no exec inherits.
+fn cloexec_pipe() -> Result<(OwnedFd, OwnedFd)> {
+    let (read_end, write_end) = nix::unistd::pipe()
+        .map_err(|errno| Error::new(format!("cannot open a pipe: {}", errno.desc())))?;
+    set_cloexec(read_end.as_raw_fd());
+    set_cloexec(write_end.as_raw_fd());
+    Ok((read_end, write_end))
+}
+
+/// A job that is forked and held: it leads its group and has the terminal,
+/// but does nothing of its own until `release` is dropped. `failed` reads
+/// the errno of a command whose exec did not happen and ends empty when it
+/// did; a group execs nothing and has none.
+struct Started {
+    pid: i32,
+    release: OwnedFd,
+    failed: Option<OwnedFd>,
+}
+
+/// In the held job: wait for the parent to drop its end (or to be gone).
+fn await_release(gate: OwnedFd) {
+    let mut byte = [0u8; 1];
+    loop {
+        // SAFETY: reads into a buffer of the stated length.
+        let count = unsafe { libc::read(gate.as_raw_fd(), byte.as_mut_ptr().cast(), 1) };
+        if count == 0 || (count < 0 && Errno::last() != Errno::EINTR) {
+            break;
         }
     }
-    // The child is reaped by `wait`, by pid: the handle is not needed.
-    Ok(command.spawn().map_err(cannot_run)?.id() as i32)
+}
+
+/// The errno a held command reported instead of becoming its program.
+fn exec_failure(failed: OwnedFd) -> Option<i32> {
+    let mut bytes = [0u8; 4];
+    std::fs::File::from(failed).read_exact(&mut bytes).ok().map(|()| i32::from_ne_bytes(bytes))
+}
+
+fn cannot_run(job: &Job, error: &std::io::Error) -> Error {
+    Error::new(format!("cannot run {} via $SHELL: {}", repr(&job.name), util::os_error_text(error)))
+}
+
+/// Fork the job as the leader of a new process group — `$SHELL -c` for a
+/// command, a supervisor for a group — held until the caller releases it,
+/// so that it never runs without its record.
+fn spawn(job: &Job, tty_fd: Option<i32>) -> Result<Started> {
+    let (gate, release) = cloexec_pipe()?;
+    let mut command = None;
+    let mut report = None;
+    let mut failed = None;
+    if job.spec.command.is_some() {
+        let mut shell = Command::new(util::user_shell(&job.env));
+        shell
+            .arg("-c")
+            .arg(&job.snippet)
+            .current_dir(&job.cwd)
+            .env_clear()
+            .envs(&job.env)
+            .stdout(stderr_for_child().map_err(|error| cannot_run(job, &error))?);
+        let (read_end, write_end) = cloexec_pipe()?;
+        (command, report, failed) = (Some(shell), Some(write_end), Some(read_end));
+    }
+    // SAFETY: we are single-threaded here (worker threads only exist
+    // inside `list`), so the child may run ordinary code.
+    match unsafe { fork() } {
+        Ok(ForkResult::Child) => {
+            drop(release);
+            drop(failed);
+            let _ = setpgid(Pid::from_raw(0), Pid::from_raw(0));
+            if let Some(fd) = tty_fd {
+                // The job claims the terminal for its own (new) group
+                // itself: doing it only from the parent would race the
+                // command's first read.
+                give_terminal(fd, getpgrp().as_raw());
+            }
+            await_release(gate);
+            let (Some(mut shell), Some(report)) = (command, report) else { supervise_group(job) };
+            let errno = shell.exec().raw_os_error().unwrap_or(libc::EIO).to_ne_bytes();
+            // SAFETY: writes a buffer of the stated length.
+            unsafe { libc::write(report.as_raw_fd(), errno.as_ptr().cast(), errno.len()) };
+            exit_with(127)
+        }
+        Ok(ForkResult::Parent { child }) => {
+            // Both sides set the group so that it exists whichever runs
+            // first.
+            let _ = setpgid(child, child);
+            Ok(Started { pid: child.as_raw(), release, failed })
+        }
+        Err(errno) => Err(Error::new(format!("cannot fork: {}", errno.desc()))),
+    }
 }
 
 /// Run the job in its own process group with a job record on disk for as
-/// long as it runs.
+/// long as it runs: the record is written before the job is let go.
 fn run_command(job: &Job, record_path: &Path) -> Result<JobResult> {
     let tty_fd = if job.tty { controlling_tty() } else { None };
-    let pgid = spawn(job, tty_fd)?;
+    let Started { pid: pgid, release, failed } = spawn(job, tty_fd)?;
     let record = jobs::JobRecord {
         script: job.name.clone(),
         worktree: job.cwd.to_string_lossy().into_owned(),
@@ -258,6 +302,14 @@ fn run_command(job: &Job, record_path: &Path) -> Result<JobResult> {
             repr(&job.name),
             util::os_error_text(&error)
         ));
+    }
+    drop(release);
+    if let Some(errno) = failed.and_then(exec_failure) {
+        let _ = waitpid(Pid::from_raw(pgid), None);
+        if let Some(fd) = tty_fd {
+            give_terminal(fd, getpgrp().as_raw());
+        }
+        return Err(cannot_run(job, &std::io::Error::from_raw_os_error(errno)));
     }
     let code = wait(pgid, tty_fd);
     let stopped_by = jobs::read_record(record_path).and_then(|record| record.stopped_by);
@@ -425,13 +477,10 @@ pub(crate) fn start_background(job: &Job) -> Result<()> {
 // --- groups -----------------------------------------------------------------
 
 /// The group supervisor: our fork, leading a group of its own and — on a
-/// terminal — holding its foreground, as a command would. Runs the members
-/// and ends the way the group's outcome says; never returns.
-fn supervise_group(job: &Job, tty_fd: Option<i32>) -> ! {
-    let _ = setpgid(Pid::from_raw(0), Pid::from_raw(0));
-    if let Some(fd) = tty_fd {
-        give_terminal(fd, getpgrp().as_raw());
-    }
+/// terminal — holding its foreground, as a command would (`spawn` saw to
+/// both). Runs the members and ends the way the group's outcome says;
+/// never returns.
+fn supervise_group(job: &Job) -> ! {
     // SAFETY: our stdout becomes our stderr, as a command's does.
     unsafe { libc::dup2(2, 1) };
     let result = if job.spec.pipeline.is_some() { run_pipeline(job) } else { run_bulk(job) };
