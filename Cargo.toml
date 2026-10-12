@@ -1,6 +1,6 @@
 [package]
 name = "workforest"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 description = "Git worktree forest management: create, open, and clean up per-branch worktrees with project-defined setup hooks"
 license = "MIT"

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.0
+
+workforest is now a single native executable, and the interactive mode
+no longer needs fzf.
+
+- The CLI has been rewritten in Rust. Commands, options, exit codes,
+  config files and machine output are what they were in 0.8.0; it starts
+  faster and needs no Python. `pip`, `pipx` and `uv tool install` still
+  work — the PyPI package now carries the executable for Linux and macOS
+  on x86-64 and arm64, and builds from source elsewhere (which needs a
+  Rust toolchain). The AUR package and the Homebrew formula build it
+  from source too.
+- `wf tui` draws itself, full screen: fzf is no longer used or required.
+  The tabs and keys are the same; the list filters fuzzily over worktree
+  name and branch and shows each worktree's state — clean, dirty, stale
+  or locked. Without a terminal it says so instead of failing.
+- `--help` and usage errors are worded differently, as are YAML and JSON
+  syntax errors, which now name the line and column in one line.
+- A config file that cannot be read or is not UTF-8 is a config error
+  (exit 4), and a setup script or cleanup whose `$SHELL` cannot be run
+  is reported as such; both used to end in a traceback. A script whose
+  job record cannot be written runs anyway, with a warning.
+- A script is recorded as running before it starts, so `wf stop` finds
+  it from its first moment.
+- Ctrl-C during a script's `cleanup` waits for the cleanup to finish
+  instead of killing it.
+- `WORKFOREST_DEBUG` prints the kind of an error before its message
+  rather than a traceback.
+- `shell-init` leaves `$MANPATH` alone when the man pages are installed
+  where `man` finds them on its own.
+- The editor plugins bundle the new executable; nothing changes in how
+  they are used.
+
 ## 0.8.0
 
 Locked and stale worktrees are understood everywhere, and a config with
