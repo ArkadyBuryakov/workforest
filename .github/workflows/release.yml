@@ -13,11 +13,7 @@ jobs:
       - name: Read package version
         id: version
         run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/workforest/__init__.py)
-          if [ -z "$version" ]; then
-            echo "Could not parse __version__ from src/workforest/__init__.py" >&2
-            exit 1
-          fi
+          version=$(packaging/version)
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Create tag and release if missing

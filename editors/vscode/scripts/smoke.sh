@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run the extension inside a real VS Code against a scratch forest.
-# Needs `code` on PATH and a display; uses this checkout's workforest via
-# its .venv (`uv sync` first). Everything lives under $SMOKE_DIR (default: a
+# Needs `code` on PATH and a display; uses this checkout's workforest, the
+# debug build (`cargo build` in the repository root first). Everything lives under $SMOKE_DIR (default: a
 # temp dir); the in-host test appends its log to $SMOKE_DIR/smoke.log.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -17,12 +17,12 @@ git -c user.name=smoke -c user.email=smoke@example.invalid commit -q --allow-emp
 printf 'scripts:\n  hello: echo hello\n' > .workforest.yaml
 git add .workforest.yaml
 git -c user.name=smoke -c user.email=smoke@example.invalid commit -q -m config
-"$root/.venv/bin/workforest" create feat --no-open --no-hooks
+"$root/target/debug/workforest" create feat --no-open --no-hooks
 touch "$dir/worktrees/smoke/feat/dirty.txt"
 
 cd "$here"
 : > "$dir/smoke.log"
-PATH="$root/.venv/bin:$PATH" code --new-window --wait \
+PATH="$root/target/debug:$PATH" code --new-window --wait \
   --user-data-dir="$dir/user-data" --extensions-dir="$dir/extensions" \
   --disable-extensions --disable-gpu --disable-workspace-trust \
   --extensionDevelopmentPath="$here" --extensionTestsPath="$here/out/smoke" \

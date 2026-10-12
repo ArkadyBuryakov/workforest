@@ -1,11 +1,70 @@
 name: Publish to PyPI
 
+# The PyPI package is the executables in a wheel (maturin, `bindings =
+# "bin"`): one platform wheel per target, no Python code. The four targets
+# are the ones the editor plugins bundle; any other platform gets the
+# source distribution, which builds with a Rust toolchain.
+#
+# Each wheel is built on a runner of its own platform. On Linux the build
+# runs in a manylinux container, so the binary links against an old glibc
+# and runs on distributions older than the runner.
+
 on:
   release:
     types: [published]
 
 jobs:
+  wheels:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-26-intel # the standard x86_64 macOS runner
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --locked --out dist
+          manylinux: auto
+
+      - name: The wheel carries the executables and the man pages
+        run: |
+          unzip -l dist/*.whl
+          unzip -l dist/*.whl | grep -q 'data/scripts/workforest$'
+          unzip -l dist/*.whl | grep -q 'data/scripts/wf$'
+          unzip -l dist/*.whl | grep -q 'data/data/share/man/man1/workforest.1$'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
   publish:
+    needs: [wheels, sdist]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -13,12 +72,12 @@ jobs:
     permissions:
       id-token: write  # OIDC for PyPI trusted publishing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - uses: astral-sh/setup-uv@v5
 
-      - name: Build sdist and wheel
-        run: uv build
-
       - name: Publish to PyPI
-        run: uv publish
+        run: uv publish dist/*

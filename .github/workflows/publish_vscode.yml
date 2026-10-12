@@ -8,8 +8,8 @@ name: Publish to the Visual Studio Marketplace
 # point, and `-f targets=vscode` there republishes just this one.
 #
 # The extension has no version of its own: package.json carries a placeholder
-# and the packaging step stamps it with the CLI's __version__, so what the
-# Marketplace serves is always the release frozen inside it. A (version,
+# and the packaging step stamps it with the CLI's version, so what the
+# Marketplace serves is always the release built into it. A (version,
 # platform) pair already up is skipped, which makes a re-run of an old
 # release a no-op and a re-run of a half-finished one pick up where it
 # stopped.
@@ -95,8 +95,7 @@ jobs:
 
       - name: Package one .vsix per platform, each with its own CLI
         run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/src/workforest/__init__.py")
-          [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
+          version=$("$GITHUB_WORKSPACE/packaging/version")
           npm pkg set version="$version"
           "$GITHUB_WORKSPACE/packaging/changelog/generate"
           echo "packaging $version as $(npm pkg get name | tr -d '\"')"

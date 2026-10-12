@@ -137,14 +137,14 @@ from the project logo by `assets/generate` in the repository root — edit
 `assets/src/logo-icon.svg` and re-run that, never these files.
 
 `npm run smoke` needs `code` on the PATH, a display, and this repository's
-`.venv` (`uv sync` in the repository root): it builds a throwaway
+CLI built (`cargo build` in the repository root): it builds a throwaway
 repository with one worktree, starts an isolated VS Code (its own
 user-data and extensions directories) with the extension in development
 mode, and runs `src/smoke/index.ts` inside the extension host.
 
 `npm run check` builds a `.vsix` with no CLI in it — during development the
 installed `workforest` is used anyway. The published packages are one per
-platform, each with the executable that platform's runner froze:
+platform, each with the executable that platform's runner built:
 
 ```sh
 ../../packaging/binary/build.sh bin       # the CLI for this machine, into bin/

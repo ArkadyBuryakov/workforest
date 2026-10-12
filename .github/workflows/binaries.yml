@@ -1,15 +1,15 @@
 name: Binaries
 
-# The self-contained `workforest` executables the editor plugins ship, one
-# per platform (packaging/binary/build.sh). PyInstaller freezes for the
-# machine it runs on, so every target is built on a runner of its own.
+# The `workforest` executables the editor plugins ship, one per platform
+# (packaging/binary/build.sh): a release build on a runner of that platform,
+# so nothing is cross-compiled.
 # Artifacts are named workforest-binary-<os>-<arch>, which is both the
 # `vsce package --target` identifier and the bin/<os>-<arch>/ directory the
 # JetBrains plugin looks under.
 #
 # Called by the publish workflows, dispatchable on its own, and run for a
-# pull request that touches the CLI these executables freeze — which is
-# where `make idea-build-full` gets the three platforms a single machine
+# pull request that touches the CLI these executables are built from — which
+# is where `make idea-build-full` gets the three platforms a single machine
 # cannot build. A pull request that leaves the CLI alone reuses whatever
 # run built it last: the binaries would be identical anyway.
 #
@@ -23,8 +23,9 @@ on:
   pull_request:
     paths:
       - src/**
-      - pyproject.toml
-      - uv.lock
+      - resources/**
+      - Cargo.toml
+      - Cargo.lock
       - packaging/binary/**
       - .github/workflows/binaries.yml
 
@@ -45,9 +46,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build the standalone executable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the executable
         run: packaging/binary/build.sh
 
       - uses: actions/upload-artifact@v4

@@ -26,8 +26,7 @@ jobs:
           # The archlinux image drops man pages at install time
           # (NoExtract = usr/share/man/*); the smoke test below needs them.
           sed -i '/^NoExtract.*usr\/share\/man/d' /etc/pacman.conf
-          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap man-db \
-            python python-yaml python-build python-installer python-wheel python-hatchling
+          pacman -Syu --noconfirm base-devel git openssh pacman-contrib namcap man-db rust
 
       - uses: actions/checkout@v4
 

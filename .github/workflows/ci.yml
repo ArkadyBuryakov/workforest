@@ -7,67 +7,101 @@ on:
 
 jobs:
   check:
+    # Formatting, clippy, and the tests with the coverage gate. The tests
+    # run the built binary against throwaway repositories, in real shells
+    # and on a pseudo-terminal: bash and zsh for the shell function, make
+    # for `wf make`, groff for the man pages.
     runs-on: ubuntu-latest
-    container: archlinux:latest
     steps:
       - name: Install system dependencies
-        run: pacman -Syu --noconfirm git python uv make zsh groff
+        run: sudo apt-get update && sudo apt-get install -y zsh groff make
 
       - uses: actions/checkout@v4
 
-      - name: Sync dev environment
-        run: uv sync
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
 
-      - name: Lint, type-check, test
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Format, lint, test with coverage
         run: make check
 
+  test-macos:
+    # The other supported platform: no /proc, BSD userland, a different pty.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: make test
+
   package-smoke:
-    # Builds the wheel the AUR package would build and installs it into a
-    # clean venv — catches missing package data and broken entry points.
-    # The full `makepkg -si` + namcap check runs in the release workflow,
+    # Builds the wheel PyPI would get and installs it into a clean venv —
+    # catches a wheel without its executables or its man pages. The AUR
+    # and Homebrew recipes are exercised in their own release workflows,
     # where a source tarball exists.
     runs-on: ubuntu-latest
-    container: archlinux:latest
     steps:
       - name: Install system dependencies
-        run: pacman -Syu --noconfirm git python python-build python-installer python-wheel python-hatchling man-db
+        run: sudo apt-get update && sudo apt-get install -y man-db
 
       - uses: actions/checkout@v4
 
-      - name: Build wheel (no isolation, like the PKGBUILD)
-        run: python -m build --wheel --no-isolation
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the wheel and the source distribution
+        run: uvx maturin build --release --locked --sdist --out dist
 
       - name: Install into a clean venv and smoke test
         run: |
-          python -m venv /tmp/venv
-          /tmp/venv/bin/pip install dist/*.whl
+          uv venv /tmp/venv
+          uv pip install --python /tmp/venv/bin/python dist/*.whl
           /tmp/venv/bin/workforest --version
           /tmp/venv/bin/wf --version
           /tmp/venv/bin/workforest shell-init bash | bash -n
           /tmp/venv/bin/workforest shell-init zsh | head -1 | grep -q Workforest
-          # man pages ride along in the wheel's share/man data, and shell-init
-          # puts that directory on $MANPATH for venv installs
+          # man pages ride along as the wheel's data files, and shell-init
+          # puts that directory on $MANPATH for installs like this one
           MANPATH=/tmp/venv/share/man man -w workforest wf 5 workforest wf
           /tmp/venv/bin/workforest shell-init bash | grep -q 'MANPATH=/tmp/venv/share/man'
-          # the init starter is package data too
+          # the init starter is compiled in
           git init -q /tmp/repo
           (cd /tmp/repo && /tmp/venv/bin/workforest init)
           test -s /tmp/repo/.workforest.yaml
 
+      - name: The source distribution builds on its own
+        run: |
+          mkdir /tmp/sdist && tar -xzf dist/*.tar.gz -C /tmp/sdist --strip-components=1
+          cd /tmp/sdist && cargo build --release --locked --bin workforest
+          ./target/release/workforest --version
+
   binary:
-    # The self-contained executable the editor plugins ship
-    # (packaging/binary/build.sh). Only linux-x64 here, to keep PRs cheap:
-    # the other three platforms are built when publishing.
+    # The executable the editor plugins ship (packaging/binary/build.sh).
+    # Only linux-x64 here, to keep PRs cheap: the other three platforms are
+    # built when publishing.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build the standalone executable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the executable
         run: packaging/binary/build.sh
 
-      - name: Smoke test it (no Python, no venv, package data intact)
+      - name: Smoke test it (one file, its resources compiled in)
         run: |
           bin=$PWD/dist/binary/workforest
           "$bin" --version

@@ -169,7 +169,7 @@ workflow, which CI runs for every pull request that touches the CLI.
 The plugin is versioned as the CLI it carries: `gradle.properties` holds a
 `0.0.0` placeholder and every build passes the real number
 (`-PpluginVersion`), which `make idea-build` and the publish workflow take
-from `__version__`.
+from `packaging/version` (the CLI's, in `Cargo.toml`).
 
 ## Support the project
 

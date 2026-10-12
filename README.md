@@ -38,7 +38,7 @@ opened, and cleaned up with one command.
   main checkout.
 - **Lock** the ones that must not be cleaned up, and **prune** the records
   of those whose directory is gone.
-- Drive everything from an interactive fzf **TUI** (`wf` with no arguments).
+- Drive everything from an interactive **TUI** (`wf` with no arguments).
 
 ## Install
 
@@ -63,15 +63,18 @@ eval "$(workforest shell-init)"
 This upgrades both `workforest` and `wf` to one shell function (needed so
 `open` can change your shell's directory — a plain binary cannot; either
 spelling, or an alias of either, behaves the same), registers completions,
-and — for `uv tool`/`pipx` installs, whose files live in a venv — puts the
-man pages on `$MANPATH`. Without it everything still works, but "open in
+and — for `uv tool`/`pipx` installs, whose files live in the tool's own
+environment — puts the man pages on `$MANPATH`. Without it everything still works, but "open in
 current shell" prints the `cd` command instead of performing it.
 
 Reference: `man workforest` (commands) and `man 5 workforest` (the
 configuration files); `wf` works in place of `workforest` for both.
 
-Requirements: Linux or macOS, git ≥ 2.36, Python ≥ 3.14 (the AUR and
-Homebrew packages bring their own). Optional: `fzf` for the TUI.
+Requirements: Linux or macOS, and git ≥ 2.36. `workforest` is a single
+native executable: the PyPI package (what `uv tool` and `pipx` install) is
+a wheel around it for Linux and macOS on x86_64 and arm64, with no Python
+code inside; anywhere else it builds from source, which needs a Rust
+toolchain — as the AUR and Homebrew packages do at build time.
 
 For the editor integration alone there is nothing to install: the [VS Code
 extension](#vs-code-extension) and the [JetBrains plugin](#jetbrains-ide-plugin)
@@ -91,7 +94,7 @@ wf checkout login           # fold the branch back into the main checkout
 wf delete fix-y             # remove a worktree (asks about dirty changes)
 wf lock big-migration       # delete/checkout/prune refuse it until `wf unlock`
 wf prune                    # forget worktrees whose directory is gone
-wf                          # interactive TUI (fzf)
+wf                          # interactive TUI
 ```
 
 ## Configuration
@@ -562,7 +565,7 @@ code --install-extension workforest-vscode-*.vsix
 ```
 
 `make vscode` (see Development) does the same from the repository root, and
-additionally freezes this checkout's CLI into the `.vsix`, so the installed
+additionally builds this checkout's CLI into the `.vsix`, so the installed
 extension drives the `workforest` it was built with.
 
 `editors/vscode/README.md` is the extension's own reference (features,
@@ -570,21 +573,31 @@ settings, troubleshooting).
 
 ## Development
 
+`workforest` is written in Rust; a stable toolchain is the only setup
+(`make check` also needs [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov)
+and the `llvm-tools` rustup component).
+
 ```sh
-uv sync           # venv + dev dependencies (uv.lock)
-make check        # ruff + mypy --strict + pytest (coverage gate ≥ 90%)
-make install      # install this checkout as a uv tool (~/.local/bin/workforest)
+cargo build       # target/debug/workforest
+make check        # rustfmt + clippy + the tests, with a coverage gate (lines ≥ 90%)
+make test         # the tests alone
+make install      # install this checkout under ~/.local (PREFIX=... to change)
 make uninstall    # remove it again
-make binary       # freeze this checkout into dist/binary/workforest (PyInstaller)
+make binary       # a release build of this checkout in dist/binary/workforest
 make vscode       # build the VS Code extension and install it into VS Code
 make idea         # build the JetBrains plugin and unpack it into the IDE
 make plugins      # both (`-build`, `-install`, `-uninstall` targets exist too)
 ```
 
+Pure logic is unit-tested beside the code (`src/**`); what the command line
+does — exit codes, the stdout protocol, scripts and their supervisors, the
+shell function, the TUI on a pseudo-terminal — is tested by running the
+built binary against throwaway git repositories (`tests/*.rs`).
+
 `make idea-build-full` packages the JetBrains plugin the way a release
 does — all four platforms' executables in the one zip — which a local
-build cannot do alone: PyInstaller only freezes for the machine it runs
-on, so the other three come from the `Binaries` workflow, which runs for
+build cannot do alone: it builds for the machine it runs on, so the other
+three come from the `Binaries` workflow, which runs for
 every pull request that touches the CLI (and on demand:
 `gh workflow run binaries.yml --ref <branch>`). The target picks that
 branch's newest successful run, downloads its artifacts, and says so when
@@ -597,20 +610,26 @@ IDE's plugins directory, `~/.local/share/JetBrains/IdeaIC2025.2` by default).
 Set them on the command line, or keep them in an untracked `Makefile.local`,
 which the `Makefile` includes when it exists.
 
-Man pages are hand-written roff under `man/` (`workforest.1` and
-`workforest.5`, plus `wf.1`/`wf.5` links to them); `tests/test_man.py` fails when they drift from
-`cli.py`. They ship as `share/man` data in the wheel, which is how every
-package gets them: the Arch package installs the wheel to `/usr`, the
-Homebrew formula moves them out of its venv, and `uv tool`/`pipx` keep
-them in the venv where `workforest shell-init` points `$MANPATH`.
+Man pages are hand-written roff (`workforest.1` and `workforest.5`, plus
+`wf.1`/`wf.5` links to them); `tests/man.rs` walks the command-line
+definition and fails when `workforest.1` drifts from it. They live under
+`packaging/pypi/data/share/man/`, laid out the way the PyPI wheel ships its
+data files — which is how `uv tool`/`pipx` installs get them, in the
+tool's environment where `workforest shell-init` points `$MANPATH`. The
+Arch package and the Homebrew formula install the same files next to the
+binary, where `man` finds them on its own.
 
 Packaging templates live under `packaging/` (one directory per package
 manager: `packaging/AUR/`, `packaging/homebrew/`); the `@VERSION@` and
 `@SHA256@` placeholders are filled in at release time.
-`packaging/binary/` builds the self-contained `workforest` executable the
-editor plugins ship; each editor's README says how to bundle it.
-Release: bump `__version__` and push to main — CI tags the release,
-renders the templates, and publishes to PyPI, the AUR, and the
+`packaging/binary/` builds the `workforest` executable the editor plugins
+ship; each editor's README says how to bundle it. `packaging/version`
+prints the one version there is — `Cargo.toml`'s — for everything that
+needs it.
+Release: bump `version` in `Cargo.toml` (and `Cargo.lock`, which
+`cargo build` updates) and push to main — CI tags the release, renders
+the templates, and publishes to PyPI (one wheel per platform, plus the
+source distribution), the AUR, and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
 published AUR package and tap are the only places rendered recipes exist.
 The same release event runs `publish_editors.yml`, which publishes the VS
@@ -622,8 +641,8 @@ the same run. `gh workflow run publish_editors.yml --ref main -f
 targets=vscode` republishes one client on its own. The clients have no
 version of their own — `editors/vscode/package.json` and
 `editors/idea/gradle.properties` carry a `0.0.0` placeholder, and every
-build stamps them with `__version__` — so a published client is always the
-release of the CLI frozen inside it, and a CLI fix reaches marketplace
+build stamps them with that version — so a published client is always the
+release of the CLI built into it, and a CLI fix reaches marketplace
 users with the next release like it reaches everyone else. A version
 already on a marketplace is skipped, which makes re-running an old release
 a no-op.

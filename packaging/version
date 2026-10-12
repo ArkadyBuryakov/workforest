@@ -1,0 +1,12 @@
+#!/bin/sh
+# Print the one version in the repository: the Rust package's, which is the
+# CLI's, the PyPI wheel's, and — stamped in at package time — the editor
+# clients'. Every consumer (Makefile, release and publish workflows) asks
+# here instead of parsing Cargo.toml itself.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+# The first `version = "..."` line is [package]'s: it precedes every table
+# that could carry one of its own.
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)
+[ -n "$version" ] || { echo "cannot read the package version from Cargo.toml" >&2; exit 1; }
+printf '%s\n' "$version"
