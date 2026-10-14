@@ -78,8 +78,12 @@
   them from there too.
 - Distribution: PyPI is a thin wheel around the executables (maturin,
   `bindings = "bin"`, no Python code; one wheel per platform the plugins
-  bundle, the sdist for the rest); the AUR package and the Homebrew
-  formula build the crate and install the binary with `wf` as a symlink.
+  bundle, the sdist for the rest); the AUR `workforest` package and the
+  Homebrew formula build the crate and install the binary with `wf` as a
+  symlink; AUR `workforest-bin` installs the same files around a
+  `packaging/binary/build.sh` executable that `publish_aur.yml` attaches to
+  the GitHub release (`workforest-linux-<arch>`) — the only release assets
+  there are.
   What ships beside the binary — shell completion, example configs — is
   under `resources/`, which is also what the binary embeds.
 - Script groups (`hooks/`): a `bulk`/`pipeline` runs under a forked

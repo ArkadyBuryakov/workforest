@@ -44,7 +44,8 @@ opened, and cleaned up with one command.
 
 ```sh
 # Arch Linux
-yay -S workforest        # AUR
+yay -S workforest        # AUR, built from source
+yay -S workforest-bin    # AUR, precompiled
 
 # macOS (or Linux with Homebrew)
 brew install arkadyburyakov/tap/workforest
@@ -74,7 +75,9 @@ Requirements: Linux or macOS, and git ≥ 2.36. `workforest` is a single
 native executable: the PyPI package (what `uv tool` and `pipx` install) is
 a wheel around it for Linux and macOS on x86_64 and arm64, with no Python
 code inside; anywhere else it builds from source, which needs a Rust
-toolchain — as the AUR and Homebrew packages do at build time.
+toolchain — as the `workforest` AUR package and the Homebrew formula do at
+build time; `workforest-bin` installs the executable attached to the GitHub
+release instead.
 
 For the editor integration alone there is nothing to install: the [VS Code
 extension](#vs-code-extension) and the [JetBrains plugin](#jetbrains-ide-plugin)
@@ -616,22 +619,27 @@ definition and fails when `workforest.1` drifts from it. They live under
 `packaging/pypi/data/share/man/`, laid out the way the PyPI wheel ships its
 data files — which is how `uv tool`/`pipx` installs get them, in the
 tool's environment where `workforest shell-init` points `$MANPATH`. The
-Arch package and the Homebrew formula install the same files next to the
+Arch packages and the Homebrew formula install the same files next to the
 binary, where `man` finds them on its own.
 
 Packaging templates live under `packaging/` (one directory per package
 manager: `packaging/AUR/`, `packaging/homebrew/`); the `@VERSION@` and
-`@SHA256@` placeholders are filled in at release time.
+`@SHA256@` placeholders are filled in at release time. The AUR has two
+recipes: `PKGBUILD.template` (`workforest`, built from source) and
+`PKGBUILD-bin.template` (`workforest-bin`, precompiled).
 `packaging/binary/` builds the `workforest` executable the editor plugins
-ship; each editor's README says how to bundle it. `packaging/version`
+ship — and, for Linux, the one `workforest-bin` installs; each editor's
+README says how to bundle it. `packaging/version`
 prints the one version there is — `Cargo.toml`'s — for everything that
 needs it.
 Release: bump `version` in `Cargo.toml` (and `Cargo.lock`, which
 `cargo build` updates) and push to main — CI tags the release, renders
 the templates, and publishes to PyPI (one wheel per platform, plus the
-source distribution), the AUR, and the
+source distribution), the AUR (both packages; the workflow first attaches
+`workforest-linux-x86_64` and `workforest-linux-aarch64` to the GitHub
+release, which is where `workforest-bin` downloads from), and the
 [Homebrew tap](https://github.com/ArkadyBuryakov/homebrew-tap). The
-published AUR package and tap are the only places rendered recipes exist.
+published AUR packages and tap are the only places rendered recipes exist.
 The same release event runs `publish_editors.yml`, which publishes the VS
 Code extension to the Visual Studio Marketplace and to Open VSX and the
 plugin to the JetBrains Marketplace. That is one workflow rather than three

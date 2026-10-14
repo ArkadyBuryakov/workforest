@@ -9,15 +9,70 @@ on:
         description: "Release version to publish (e.g. 0.2.1)"
         required: true
 
+# Two packages from one release: `workforest`, which builds the crate on the
+# user's machine, and `workforest-bin`, which installs an executable built
+# here. That executable is packaging/binary/build.sh's — the build the
+# editor plugins ship — attached to the GitHub release as
+# workforest-linux-<arch>, which is where the -bin recipe downloads it from.
+# Both recipes are rendered, built, linted and smoke-tested the same way, so
+# they are one job; it waits for the release assets because one of the two
+# needs them.
+
+env:
+  RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+
 jobs:
+  binaries:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            os: ubuntu-latest
+          - arch: aarch64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # attach the executable to the release
+    steps:
+      - name: Resolve the release tag
+        id: tag
+        run: echo "tag=v${RELEASE_VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      # The release's own source, also when dispatched from another ref.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the executable
+        run: packaging/binary/build.sh
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="workforest-linux-${{ matrix.arch }}"
+          cp dist/binary/workforest "$asset"
+          gh release upload "${{ steps.tag.outputs.tag }}" "$asset" --clobber
+
   publish:
+    needs: binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkgname: workforest
+            template: PKGBUILD.template
+          - pkgname: workforest-bin
+            template: PKGBUILD-bin.template
     runs-on: ubuntu-latest
     container: archlinux:latest
-    env:
-      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
     environment:
       name: aur
-      url: https://aur.archlinux.org/packages/workforest
+      url: https://aur.archlinux.org/packages/${{ matrix.pkgname }}
     permissions:
       contents: read
     steps:
@@ -34,11 +89,12 @@ jobs:
         run: |
           version="${RELEASE_VERSION#v}"
           cd packaging/AUR
-          sed "s/@VERSION@/$version/g" PKGBUILD.template > PKGBUILD
+          sed "s/@VERSION@/$version/g" "${{ matrix.template }}" > PKGBUILD
           # makepkg refuses to run as root
           useradd -m builder
           chown -R builder .
-          # updpkgsums replaces the @SHA256@ placeholder with the real checksum
+          # updpkgsums replaces the @SHA256@ placeholders with the real
+          # checksums, of every architecture's sources
           runuser -u builder -- updpkgsums
           runuser -u builder -- sh -c 'makepkg --printsrcinfo > .SRCINFO'
 
@@ -46,8 +102,8 @@ jobs:
         run: |
           cd packaging/AUR
           runuser -u builder -- makepkg -f --noconfirm
-          namcap PKGBUILD workforest-*.pkg.tar.zst
-          pacman -U --noconfirm workforest-*.pkg.tar.zst
+          namcap PKGBUILD "${{ matrix.pkgname }}"-*.pkg.tar.zst
+          pacman -U --noconfirm "${{ matrix.pkgname }}"-*.pkg.tar.zst
           workforest --version
           wf --version
           man -w workforest wf 5 workforest wf
@@ -70,7 +126,8 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i /tmp/ssh/aur -o UserKnownHostsFile=/tmp/ssh/known_hosts"
           git config --global user.name "Arkady Buryakov"
           git config --global user.email "arkady@buryakov.pro"
-          git clone ssh://aur@aur.archlinux.org/workforest.git /tmp/aur
+          # A name the AUR does not have yet clones empty; the push creates it.
+          git clone "ssh://aur@aur.archlinux.org/${{ matrix.pkgname }}.git" /tmp/aur
           cp packaging/AUR/PKGBUILD packaging/AUR/.SRCINFO /tmp/aur/
           cd /tmp/aur
           git add PKGBUILD .SRCINFO
